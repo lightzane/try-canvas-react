@@ -1,5 +1,5 @@
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from "@/constants/game-settings";
-import { isColliding, type Rect } from "@/features/collisions";
+import { getOverlapArea, isColliding, type Rect } from "@/features/collisions";
 import { Controller } from "@/features/controller";
 import { assetsReady, GAME_STATE } from "@/features/game-state";
 
@@ -118,8 +118,21 @@ export class GameEngine {
         y: position.y + -dy,
       },
     };
+
+    // Check zone/triggers
+    this.overlapBattleZones(playerBox);
+
     const blocked = GAME_STATE.boundaries.some((b) => isColliding(playerBox, b));
     if (!blocked) this.move(dx, dy);
+  }
+
+  private overlapBattleZones(playerBox: Rect) {
+    const playerArea = playerBox.width * playerBox.height;
+    const offset = playerArea / 2;
+    const isOverlap = GAME_STATE.battleZones.some((b) => getOverlapArea(playerBox, b) > offset);
+
+    const battleChance = Math.random() < 0.01;
+    if (isOverlap && battleChance) console.log("Battle Activation");
   }
 
   private draw() {

@@ -1078,6 +1078,146 @@ export class GameEngine {
 > Throttle network in devtools, reload — game waits, then starts clean.
 > Never a flash of missing sprites.
 
+## Detect the Player Entering a Zone
+
+Not every game needs this — Flappy Bird, Snake, Pong don't. It's here
+because this one's RPG-shaped, and `Zone` was already built reusable for
+exactly this: a second Tiled layer, checked with a deeper overlap than
+`isColliding`'s any-touch test.
+
+### Step 19: Compute how much two rects overlap
+
+**File:** `src/features/collisions.ts` — add below `isColliding`:
+
+<!-- prettier-ignore -->
+```ts
+export function getOverlapArea(a: Rect, b: Rect): number {
+  const overlap = getOverlapRect(a, b);
+  return overlap ? overlap.width * overlap.height : 0;
+}
+
+function getOverlapRect(a: Rect, b: Rect): Rect | null {
+  const edgesA = { x2: a.position.x + a.width, y2: a.position.y + a.height };
+  const edgesB = { x2: b.position.x + b.width, y2: b.position.y + b.height };
+
+  const left = Math.max(a.position.x, b.position.x);
+  const top = Math.max(a.position.y, b.position.y);
+  const right = Math.min(edgesA.x2, edgesB.x2);
+  const bottom = Math.min(edgesA.y2, edgesB.y2);
+
+  const width = right - left;
+  const height = bottom - top;
+
+  if (width <= 0 || height <= 0) return null; // no overlap on at least one axis
+
+  return { position: { x: left, y: top }, width, height } satisfies Rect;
+}
+```
+
+Visually, `left`/`top`/`right`/`bottom` are just whichever edge of `a` or
+`b` is furthest "inward" on each side:
+
+```
+   x --- increase to right -->
+   y
+   |   a.position.(x&y) -->  +------------------2   <-- edgesA.x2
+   |                         |        a         |
+   v                         |            1-----+----+   <-- edgesB.x2
+                             |            |     |    |
+              edgesA.y2 -->  3------------+-----+    |
+                                          |       b  |
+                           edgesB.y2 -->  +----------+
+```
+
+- **1** = `left`/`top` — `Math.max(a.position.x, b.position.x)` and `Math.max(a.position.y, b.position.y)`
+- **2** = `right` — `Math.min(edgesA.x2, edgesB.x2)`
+- **3** = `bottom` — `Math.min(edgesA.y2, edgesB.y2)`
+
+> [!TIP]
+> `isColliding` answers yes/no — any touch counts, which is right for a
+> wall. This answers _how much_, so entering a zone can require a deeper
+> overlap than just brushing its edge.
+
+### Step 20: Turn a second layer into zones, and trigger on deep overlap
+
+**File:** `src/features/collisions.ts` — same pattern as `createBoundaries`,
+reusing `COLLISION_TILE` since it's the same marker tile painted on a
+different Tiled layer, exported the same way as the wall layer earlier:
+
+<!-- prettier-ignore -->
+```ts
+export function createBattleZones(origin: Position) {
+  return createZones({ tiles: battleZones, matchValue: COLLISION_TILE, columns: MAP_COLUMNS, origin });
+}
+
+// prettier-ignore
+const battleZones = [
+  0, 0, 0, 0, 0, /* ...continues for all 70×40 = 2800 tiles... */ 1025, 0, 0,
+];
+```
+
+**File:** `src/features/game-state.ts`
+
+<!-- prettier-ignore -->
+```ts
+export const GAME_STATE = {
+  map: new Sprite({ image: IMG_MAP, position: { ...mapOrigin } }),
+  foreground: new Sprite({ image: IMG_MAP_FG, position: { ...mapOrigin } }),
+  player: new Player({ sprites }),
+  boundaries: createBoundaries(mapOrigin),
+  battleZones: createBattleZones(mapOrigin), // new
+};
+```
+
+**File:** `src/features/game-engine.ts` — scroll it with everything else,
+same as boundaries:
+
+<!-- prettier-ignore -->
+```ts
+private move(dx: number, dy: number) {
+  GAME_STATE.map.position.x += dx;
+  GAME_STATE.map.position.y += dy;
+  GAME_STATE.foreground.position.x += dx;
+  GAME_STATE.foreground.position.y += dy;
+  [GAME_STATE.boundaries, GAME_STATE.battleZones] // was: GAME_STATE.boundaries.forEach(...)
+    .flat()
+    .forEach((b) => {
+      b.position.x += dx;
+      b.position.y += dy;
+    });
+}
+```
+
+Then check it in `attemptMove`, before the wall check:
+
+<!-- prettier-ignore -->
+```ts
+private attemptMove(dx: number, dy: number) {
+  const box = {
+    position: { x: GAME_STATE.player.position.x - dx, y: GAME_STATE.player.position.y - dy },
+    width: GAME_STATE.player.width,
+    height: GAME_STATE.player.height,
+  };
+
+  const playerArea = box.width * box.height;
+  const enteredZone = GAME_STATE.battleZones.some((z) => getOverlapArea(box, z) > playerArea / 2);
+  if (enteredZone && Math.random() < 0.01) console.log("Battle Activation");
+
+  const blocked = GAME_STATE.boundaries.some((b) => isColliding(box, b));
+  if (!blocked) this.move(dx, dy);
+}
+```
+
+> [!TIP]
+> The `> playerArea / 2` threshold means at least half the player's box
+> has to be inside the zone before it counts — grazing the edge of a
+> battle tile won't trigger it every frame.
+
+> [!NOTE]
+> Walk into the marked tiles and watch the console — "Battle Activation"
+> should fire roughly 1 in 20 steps once you're mostly inside, never at
+> the edge.
+
 ## Where You Landed
 
 A `GAME_STATE`/`GameEngine` split introduced early and never revisited in
@@ -1086,7 +1226,9 @@ one field or method at a time. A canvas game loop decoupled from frame
 rate; a reusable `Sprite` with spritesheet animation; a `Player` subclass
 with 4-directional facing; input that survives multiple keys held at once
 and resets cleanly on alt-tab; real Tiled-driven wall collision; a
-foreground layer so tall objects correctly draw in front of the player.
+foreground layer so tall objects correctly draw in front of the player;
+zone-entry detection reusing the same `Zone` shape for a second, non-wall
+Tiled layer.
 
 Compare your version against the real thing:
 
