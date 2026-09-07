@@ -1057,6 +1057,7 @@ export class GameEngine {
   start() {
     window.addEventListener("keydown", this.controller.keydown);
     window.addEventListener("keyup", this.controller.keyup);
+    window.addEventListener("blur", this.controller.blur);
 
     assetsReady.then(() => { // new
       if (this.cancelled) return;
@@ -1069,6 +1070,7 @@ export class GameEngine {
     cancelAnimationFrame(this.gameLoopId);
     window.removeEventListener("keydown", this.controller.keydown);
     window.removeEventListener("keyup", this.controller.keyup);
+    window.removeEventListener("blur", this.controller.blur);
   }
   // -- snip --
 }
@@ -1215,8 +1217,180 @@ private attemptMove(dx: number, dy: number) {
 
 > [!NOTE]
 > Walk into the marked tiles and watch the console — "Battle Activation"
-> should fire roughly 1 in 20 steps once you're mostly inside, never at
+> should fire roughly 1 in 100 steps once you're mostly inside, never at
 > the edge.
+
+## Split Behavior by Scene
+
+Not every game needs this either — it only matters once entering a battle
+should actually change what's on screen. Right now `GAME_STATE.scene`
+flips to `"battle"` and nothing happens. Giving each scene its own
+`update`/`draw` pair, instead of branching on `GAME_STATE.scene` inside
+`GameEngine`, means adding a real battle screen later is one new file, not
+a growing pile of `if` checks.
+
+### Step 21: Define what a scene is
+
+**File:** `src/features/scene.ts`
+
+<!-- prettier-ignore -->
+```ts
+import type { Direction } from "@/features/controller";
+
+export type SceneName = "overworld" | "battle";
+
+export interface Scene {
+  update(dt: number, direction: Direction | undefined): void;
+  draw(ctx: CanvasRenderingContext2D): void;
+}
+```
+
+> [!TIP]
+> `SceneName` is a plain string, not the scene object itself — so a scene
+> can switch to another one by name (`GAME_STATE.scene = "battle"`)
+> without importing that other scene's file.
+
+### Step 22: Track which scene is active
+
+**File:** `src/features/game-state.ts` — add to `GAME_STATE`:
+
+<!-- prettier-ignore -->
+```ts
+import type { SceneName } from "@/features/scene";
+
+export const GAME_STATE = {
+  map: new Sprite({ image: IMG_MAP, position: { ...mapOrigin } }),
+  foreground: new Sprite({ image: IMG_MAP_FG, position: { ...mapOrigin } }),
+  player: new Player({ sprites }),
+  boundaries: createBoundaries(mapOrigin),
+  battleZones: createBattleZones(mapOrigin),
+  scene: "overworld" as SceneName, // new
+};
+```
+
+### Step 23: Move the overworld's behavior into its own scene
+
+**File:** `src/features/scenes/overworld.ts` — everything `update()`,
+`draw()`, `move()`, and `attemptMove()` did inside `GameEngine`, unchanged
+except there's no more `this`:
+
+<!-- prettier-ignore -->
+```ts
+import { getOverlapArea, isColliding } from "@/features/collisions";
+import { GAME_STATE } from "@/features/game-state";
+import type { Scene } from "@/features/scene";
+
+export const overworldScene: Scene = {
+  update(dt, direction) {
+    if (direction) GAME_STATE.player.face(direction);
+    else GAME_STATE.player.frames.val = 0;
+
+    const distance = GAME_STATE.player.moveSpeed * dt;
+
+    if (direction === "w") attemptMove(0, distance);
+    else if (direction === "a") attemptMove(distance, 0);
+    else if (direction === "s") attemptMove(0, -distance);
+    else if (direction === "d") attemptMove(-distance, 0);
+  },
+
+  draw(ctx) {
+    GAME_STATE.map.draw(ctx);
+    GAME_STATE.player.draw(ctx);
+    GAME_STATE.foreground.draw(ctx);
+  },
+};
+
+function move(dx: number, dy: number) {
+  GAME_STATE.map.position.x += dx;
+  GAME_STATE.map.position.y += dy;
+  GAME_STATE.foreground.position.x += dx;
+  GAME_STATE.foreground.position.y += dy;
+  [GAME_STATE.boundaries, GAME_STATE.battleZones]
+    .flat()
+    .forEach((b) => {
+      b.position.x += dx;
+      b.position.y += dy;
+    });
+}
+
+function attemptMove(dx: number, dy: number) {
+  const box = {
+    position: { x: GAME_STATE.player.position.x - dx, y: GAME_STATE.player.position.y - dy },
+    width: GAME_STATE.player.width,
+    height: GAME_STATE.player.height,
+  };
+
+  const playerArea = box.width * box.height;
+  const enteredZone = GAME_STATE.battleZones.some((z) => getOverlapArea(box, z) > playerArea / 2);
+  if (enteredZone && Math.random() < 0.01) GAME_STATE.scene = "battle"; // was: console.log("Battle Activation")
+
+  const blocked = GAME_STATE.boundaries.some((b) => isColliding(box, b));
+  if (!blocked) move(dx, dy);
+}
+```
+
+### Step 24: Add a battle scene
+
+**File:** `src/features/scenes/battle.ts` — stub for now:
+
+<!-- prettier-ignore -->
+```ts
+import type { Scene } from "@/features/scene";
+
+export const battleScene: Scene = {
+  update() {},
+  draw() {},
+};
+```
+
+> [!NOTE]
+> Empty on purpose. Since nothing draws over it, the canvas just keeps
+> showing whatever `overworldScene` last drew, frozen — the base a fade
+> transition needs.
+
+### Step 25: Let `GameEngine` dispatch to the active scene
+
+**File:** `src/features/game-engine.ts` — delete `update()`, `draw()`,
+`move()`, and `attemptMove()` entirely — they moved to `overworld.ts`. Add
+a scene registry, and simplify `tick()` to read from it:
+
+<!-- prettier-ignore -->
+```ts
+import type { Scene, SceneName } from "@/features/scene";
+import { battleScene } from "@/features/scenes/battle";
+import { overworldScene } from "@/features/scenes/overworld";
+
+const SCENES: Record<SceneName, Scene> = {
+  overworld: overworldScene,
+  battle: battleScene,
+};
+
+export class GameEngine {
+  // -- snip --
+
+  private tick = (time: number) => {
+    this.gameLoopId = requestAnimationFrame(this.tick);
+    const dt = (time - this.lastTime) / 1000;
+    this.lastTime = time;
+
+    const direction = this.controller.keys.pressed.at(-1);
+    const scene = SCENES[GAME_STATE.scene];
+    scene.update(dt, direction);
+    scene.draw(this.ctx);
+  };
+  // -- snip --
+}
+```
+
+> [!WARNING]
+> `update()`, `draw()`, `move()`, and `attemptMove()` no longer belong on
+> `GameEngine` — delete them, don't leave unused copies sitting next to
+> the new `tick()`.
+
+> [!NOTE]
+> Same game as before this step — nothing should look or behave
+> differently yet. `GAME_STATE.scene` switching to `"battle"` does nothing
+> visible until a later step gives `battleScene` something to draw.
 
 ## Where You Landed
 
@@ -1228,13 +1402,16 @@ with 4-directional facing; input that survives multiple keys held at once
 and resets cleanly on alt-tab; real Tiled-driven wall collision; a
 foreground layer so tall objects correctly draw in front of the player;
 zone-entry detection reusing the same `Zone` shape for a second, non-wall
-Tiled layer.
+Tiled layer; behavior split into scenes, each owning its own
+`update`/`draw`, so `GameEngine` stays a dispatcher instead of a growing
+pile of `if` checks as more scenes get added.
 
 Compare your version against the real thing:
 
 - [`sprite.ts`](../src/features/sprite.ts) / [`sprite-player.ts`](../src/features/sprite-player.ts)
 - [`controller.ts`](../src/features/controller.ts)
 - [`zone.ts`](../src/features/zone.ts) / [`collisions.ts`](../src/features/collisions.ts)
+- [`scene.ts`](../src/features/scene.ts) / [`scenes/overworld.ts`](../src/features/scenes/overworld.ts) / [`scenes/battle.ts`](../src/features/scenes/battle.ts)
 - [`game-state.ts`](../src/features/game-state.ts) / [`game-engine.ts`](../src/features/game-engine.ts)
 - [`preload.ts`](../src/lib/preload.ts)
 - [`layout.tsx`](../src/app/layout.tsx)

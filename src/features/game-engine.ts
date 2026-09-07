@@ -1,7 +1,15 @@
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from "@/constants/game-settings";
-import { getOverlapArea, isColliding, type Rect } from "@/features/collisions";
 import { Controller } from "@/features/controller";
 import { assetsReady, GAME_STATE } from "@/features/game-state";
+import type { Scene, SceneName } from "@/features/scene";
+import { battleScene } from "@/features/scenes/battle";
+import { overworldScene } from "@/features/scenes/overworld";
+import { fade } from "@/lib/canvas/fade-transition";
+
+const SCENES: Record<SceneName, Scene> = {
+  overworld: overworldScene,
+  battle: battleScene,
+};
 
 export class GameEngine {
   private ctx: CanvasRenderingContext2D;
@@ -72,78 +80,37 @@ export class GameEngine {
     const dt = (time - this.lastTime) / 1000; // delta time in seconds
     this.lastTime = time;
 
-    this.update(dt);
-    this.draw();
-  };
+    const sceneBefore = GAME_STATE.scene;
+    const scene = SCENES[sceneBefore];
+    scene.update(dt);
 
-  private update(dt: number) {
-    const direction = GAME_STATE.keys.pressed.at(-1);
-    if (direction) GAME_STATE.player.face(direction);
-    else GAME_STATE.player.frames.val = 0; // standing position
+    // Reset the clock the instant a scene switches, however it happened —
+    // otherwise a fresh scene inherits time built up by the previous one.
+    if (GAME_STATE.scene !== sceneBefore) GAME_STATE.sceneElapsed = 0;
+    else GAME_STATE.sceneElapsed += dt;
 
-    // [Frame rate] if NO delta time, this will be 200px/tick
-    // which can be faster in other devices (e.g. 60Hz, 120Hz, 144Hz)
-    //
-    // Sync with [Time-based]
-    // movement 200px/sec — multiply with delta time
-    const distance = GAME_STATE.player.moveSpeed * dt;
+    const activeScene = SCENES[GAME_STATE.scene];
 
-    if (direction === "w") this.attemptMove(0, distance);
-    else if (direction === "a") this.attemptMove(distance, 0);
-    else if (direction === "s") this.attemptMove(0, -distance);
-    else if (direction === "d") this.attemptMove(-distance, 0);
-  }
+    if (activeScene.duration !== undefined && GAME_STATE.sceneElapsed >= activeScene.duration) {
+      GAME_STATE.scene = activeScene.next;
+      GAME_STATE.sceneElapsed = 0;
+      fade.start("out");
+    }
 
-  private move(dx: number, dy: number) {
-    GAME_STATE.background.position.x += dx;
-    GAME_STATE.background.position.y += dy;
-    GAME_STATE.foreground.position.x += dx;
-    GAME_STATE.foreground.position.y += dy;
-    [GAME_STATE.boundaries, GAME_STATE.battleZones] //
-      .flat()
-      .forEach((b) => {
-        b.position.x += dx;
-        b.position.y += dy;
-      });
-  }
+    const finishedFading = fade.update(dt);
+    if (finishedFading && fade.direction === "out") fade.start("in");
 
-  private attemptMove(dx: number, dy: number) {
-    const { position, width, height } = GAME_STATE.player;
-    const playerBox: Rect = {
-      width,
-      height,
-      position: {
-        // the player is visually fixed, so test with inversed delta
-        x: position.x + -dx,
-        y: position.y + -dy,
-      },
-    };
+    // Skip drawing while still ramping to black — otherwise whatever this
+    // scene draws bleeds through the still-transparent overlay before the
+    // swap is actually hidden. The canvas just keeps the last painted
+    // (frozen) frame in the meantime, since nothing draws over it.
+    const isFadingOut = fade.active && fade.direction === "out";
+    if (!isFadingOut) scene.draw(this.ctx);
 
-    // Check zone/triggers
-    this.overlapBattleZones(playerBox);
-
-    const blocked = GAME_STATE.boundaries.some((b) => isColliding(playerBox, b));
-    if (!blocked) this.move(dx, dy);
-  }
-
-  private overlapBattleZones(playerBox: Rect) {
-    const playerArea = playerBox.width * playerBox.height;
-    const offset = playerArea / 2;
-    const isOverlap = GAME_STATE.battleZones.some((b) => getOverlapArea(playerBox, b) > offset);
-
-    const battleChance = Math.random() < 0.01;
-    if (isOverlap && battleChance) console.log("Battle Activation");
-  }
-
-  private draw() {
-    GAME_STATE.background.draw(this.ctx);
-    // GAME_STATE.boundaries.forEach((b) => b.draw(this.ctx)); // for debugging and boundary visibility
-    // GAME_STATE.battleZones.forEach((b) => b.draw(this.ctx)); // for debugging
-    GAME_STATE.player.draw(this.ctx);
-    GAME_STATE.foreground.draw(this.ctx);
+    fade.draw(this.ctx);
 
     // DEBUG: Center of the canvas
     // this.ctx.fillStyle = "rgba(255, 0, 0, 1)";
     // this.ctx.fillRect(CANVAS_WIDTH / 2 - 5, CANVAS_HEIGHT / 2 - 5, 10, 10);
-  }
+  };
 }
