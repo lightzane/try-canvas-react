@@ -6,7 +6,7 @@ import IMG_PLAYER_LEFT from "@/assets/img/playerLeft.png";
 import IMG_PLAYER_RIGHT from "@/assets/img/playerRight.png";
 import IMG_PLAYER_UP from "@/assets/img/playerUp.png";
 
-import { createBoundaries } from "@/features/collisions";
+import { createBattleZones, createBoundaries } from "@/features/collisions";
 import type { Direction } from "@/features/controller";
 import { Sprite } from "@/features/sprite";
 import { Player } from "@/features/sprite-player";
@@ -47,6 +47,7 @@ export const GAME_STATE = {
   foreground: new Sprite({ image: IMG_MAP_FG, position: structuredClone(mapOrigin) }),
   player: new Player({ sprites: IMGS_PLAYER }),
   boundaries: createBoundaries(structuredClone(mapOrigin)),
+  battleZones: createBattleZones(structuredClone(mapOrigin)),
   keys: {
     pressed: [] as Direction[],
   },

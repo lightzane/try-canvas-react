@@ -99,10 +99,12 @@ export class GameEngine {
     GAME_STATE.background.position.y += dy;
     GAME_STATE.foreground.position.x += dx;
     GAME_STATE.foreground.position.y += dy;
-    GAME_STATE.boundaries.forEach((b) => {
-      b.position.x += dx;
-      b.position.y += dy;
-    });
+    [GAME_STATE.boundaries, GAME_STATE.battleZones] //
+      .flat()
+      .forEach((b) => {
+        b.position.x += dx;
+        b.position.y += dy;
+      });
   }
 
   private attemptMove(dx: number, dy: number) {
@@ -123,6 +125,7 @@ export class GameEngine {
   private draw() {
     GAME_STATE.background.draw(this.ctx);
     // GAME_STATE.boundaries.forEach((b) => b.draw(this.ctx)); // for debugging and boundary visibility
+    // GAME_STATE.battleZones.forEach((b) => b.draw(this.ctx)); // for debugging
     GAME_STATE.player.draw(this.ctx);
     GAME_STATE.foreground.draw(this.ctx);
 
