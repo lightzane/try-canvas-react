@@ -6,6 +6,36 @@ Build a top-down walking game on an HTML canvas. React only mounts the
 **Assumes:** `pnpm dev` runs (see [README](../README.md)); Tiled assets
 already exist under [`src/assets/img`](../src/assets/img).
 
+## Table of Contents
+
+**Core Fundamentals**
+
+- [Get a Pixel on Screen](#get-a-pixel-on-screen)
+- [The Game Loop](#the-game-loop)
+- [The `Sprite` Class](#the-sprite-class)
+- [Get React Out of the Way](#get-react-out-of-the-way)
+
+**Input & Movement**
+
+- [Make It Move](#make-it-move)
+- [Animate the Walk Cycle](#animate-the-walk-cycle)
+- [Make It Feel Right](#make-it-feel-right)
+
+**Collision & Layering**
+
+- [Walls You Can't Walk Through](#walls-you-cant-walk-through)
+- [Layer a Foreground Over the Player](#layer-a-foreground-over-the-player)
+
+**Optional: RPG Systems** — skip this whole group for a non-RPG game
+
+- [Detect the Player Entering a Zone](#detect-the-player-entering-a-zone)
+- [Split Behavior by Scene](#split-behavior-by-scene)
+- [Fade Between Scenes](#fade-between-scenes)
+
+**Summary**
+
+- [Where You Landed](#where-you-landed)
+
 ## Get a Pixel on Screen
 
 ### Step 1: Mount a canvas and grab its 2D context
@@ -1392,6 +1422,238 @@ export class GameEngine {
 > differently yet. `GAME_STATE.scene` switching to `"battle"` does nothing
 > visible until a later step gives `battleScene` something to draw.
 
+## Fade Between Scenes
+
+An instant cut between scenes is jarring. A brief fade to black hides the
+swap — and doubles as a way to know, in code, exactly when it's safe to
+reveal the next scene.
+
+### Step 26: A duration-based fade, reusable for any transition
+
+**File:** `src/lib/fade-transition.ts`
+
+<!-- prettier-ignore -->
+```ts
+import { CANVAS_HEIGHT, CANVAS_WIDTH } from "@/constants/game-settings";
+
+export type FadeDirection = "in" | "out";
+
+export class FadeTransition {
+  private duration: number;
+  private elapsed = 0;
+  private phase: FadeDirection = "out";
+  active = false;
+
+  constructor(duration: number = 1) {
+    this.duration = duration;
+  }
+
+  get direction() {
+    return this.phase;
+  }
+
+  start(direction: FadeDirection, duration?: number) {
+    this.phase = direction;
+    this.elapsed = 0;
+    this.active = true;
+    if (duration !== undefined) this.duration = duration;
+  }
+
+  /** Advances by dt seconds. Returns true on the exact frame this phase finishes. */
+  update(dt: number): boolean {
+    if (!this.active) return false;
+
+    this.elapsed += dt;
+    if (this.elapsed < this.duration) return false;
+
+    this.elapsed = this.duration;
+    this.active = false;
+    return true;
+  }
+
+  get alpha() {
+    const progress = Math.min(this.elapsed / this.duration, 1);
+    return this.phase === "out" ? progress : 1 - progress;
+  }
+
+  draw(ctx: CanvasRenderingContext2D) {
+    if (this.alpha <= 0) return;
+    ctx.fillStyle = `rgba(0, 0, 0, ${this.alpha})`;
+    ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT);
+  }
+}
+
+export const fade = new FadeTransition();
+```
+
+> [!TIP]
+> `start()`'s second argument overrides the constructor's duration for
+> just that call — a quick flash and a slow dramatic fade can share this
+> same instance instead of needing two.
+
+### Step 27: Trigger the fade when battle starts
+
+**File:** `src/features/scenes/overworld.ts`
+
+<!-- prettier-ignore -->
+```diff
++ import { fade } from "@/lib/fade-transition";
+
+  function attemptMove(dx: number, dy: number) {
+    // -- snip --
+
+-   if (enteredZone && Math.random() < 0.01) GAME_STATE.scene = "battle";
++   if (enteredZone && Math.random() < 0.01) {
++     GAME_STATE.scene = "battle";
++     fade.start("out");
++   }
+
+    // -- snip --
+  }
+```
+
+### Step 28: Let a scene declare when it should end
+
+**File:** `src/features/scene.ts` — add to `Scene`:
+
+<!-- prettier-ignore -->
+```diff
+  export interface Scene {
+    update(dt: number, direction: Direction | undefined): void;
+    draw(ctx: CanvasRenderingContext2D): void;
++   /** Set together with `next` to auto-transition after this many seconds. */
++   duration?: number;
++   next?: SceneName;
+  }
+```
+
+**File:** `src/features/scenes/battle.ts`
+
+<!-- prettier-ignore -->
+```diff
+  export const battleScene: Scene = {
++   duration: 5,
++   next: "overworld",
++
+    update() {},
+    draw() {},
+  };
+```
+
+> [!NOTE]
+> `5` is a placeholder so there's something to test — a real battle ends
+> on a win or loss, not a clock. Swap this out once that logic exists.
+
+### Step 29: Give the battle scene something to reveal
+
+**File:** `src/features/game-state.ts`
+
+<!-- prettier-ignore -->
+```diff
++ import IMG_BATTLE_BG_SRC from "@/assets/img/battleBackground.png";
++
++ const IMG_BATTLE_BG = new Image();
++ IMG_BATTLE_BG.src = IMG_BATTLE_BG_SRC;
+
+  export const assetsReady = preload([
+    IMG_MAP,
+    IMG_MAP_FG,
++   IMG_BATTLE_BG,
+    ...Object.values(sprites),
+  ]);
+
+  export const GAME_STATE = {
+    map: new Sprite({ image: IMG_MAP, position: { ...mapOrigin } }),
+    foreground: new Sprite({ image: IMG_MAP_FG, position: { ...mapOrigin } }),
++   battleBackground: new Sprite({ image: IMG_BATTLE_BG }),
+    player: new Player({ sprites }),
+    boundaries: createBoundaries(mapOrigin),
+    battleZones: createBattleZones(mapOrigin),
+    scene: "overworld" as SceneName,
+  };
+```
+
+**File:** `src/features/scenes/battle.ts`
+
+<!-- prettier-ignore -->
+```diff
++ import { GAME_STATE } from "@/features/game-state";
+
+  export const battleScene: Scene = {
+    duration: 5,
+    next: "overworld",
+
+    update() {},
+-   draw() {},
++
++   draw(ctx) {
++     GAME_STATE.battleBackground.draw(ctx);
++   },
+  };
+```
+
+### Step 30: Tie it together in the game loop
+
+**File:** `src/features/game-state.ts` — one more field, alongside `scene`:
+
+<!-- prettier-ignore -->
+```diff
+  export const GAME_STATE = {
+    // -- snip --
+    scene: "overworld" as SceneName,
++   sceneElapsed: 0,
+  };
+```
+
+**File:** `src/features/game-engine.ts`
+
+<!-- prettier-ignore -->
+```diff
++ import { fade } from "@/lib/fade-transition";
+
+  private tick = (time: number) => {
+    this.gameLoopId = requestAnimationFrame(this.tick);
+    const dt = (time - this.lastTime) / 1000;
+    this.lastTime = time;
+
+    const direction = this.controller.keys.pressed.at(-1);
+-   const scene = SCENES[GAME_STATE.scene];
++   const sceneBefore = GAME_STATE.scene;
++   const scene = SCENES[sceneBefore];
+    scene.update(dt, direction);
+-   scene.draw(this.ctx);
++
++   // Reset the clock the instant a scene switches, however it happened.
++   if (GAME_STATE.scene !== sceneBefore) GAME_STATE.sceneElapsed = 0;
++   else GAME_STATE.sceneElapsed += dt;
++
++   const activeScene = SCENES[GAME_STATE.scene];
++   if (activeScene.duration !== undefined && activeScene.next && GAME_STATE.sceneElapsed >= activeScene.duration) {
++     GAME_STATE.scene = activeScene.next;
++     GAME_STATE.sceneElapsed = 0;
++     fade.start("out");
++   }
++
++   const finishedFading = fade.update(dt);
++   if (finishedFading && fade.direction === "out") fade.start("in");
++
++   const isFadingOut = fade.active && fade.direction === "out";
++   if (!isFadingOut) scene.draw(this.ctx);
++
++   fade.draw(this.ctx);
+  };
+```
+
+> [!WARNING]
+> Skip the `isFadingOut` check and the incoming scene's `draw()` starts
+> painting the instant `GAME_STATE.scene` changes — one frame after the
+> trigger, not once the screen is actually covered. Its content bleeds
+> through the still-transparent fade before the swap is hidden.
+
+> [!NOTE]
+> Walk into a battle zone — screen fades to black, reveals the battle
+> background, holds five seconds, fades back to the frozen overworld.
+
 ## Where You Landed
 
 A `GAME_STATE`/`GameEngine` split introduced early and never revisited in
@@ -1404,7 +1666,9 @@ foreground layer so tall objects correctly draw in front of the player;
 zone-entry detection reusing the same `Zone` shape for a second, non-wall
 Tiled layer; behavior split into scenes, each owning its own
 `update`/`draw`, so `GameEngine` stays a dispatcher instead of a growing
-pile of `if` checks as more scenes get added.
+pile of `if` checks as more scenes get added; a reusable fade transition
+tying scene switches together, with scenes able to declare their own
+auto-expiry.
 
 Compare your version against the real thing:
 
@@ -1413,5 +1677,5 @@ Compare your version against the real thing:
 - [`zone.ts`](../src/features/zone.ts) / [`collisions.ts`](../src/features/collisions.ts)
 - [`scene.ts`](../src/features/scene.ts) / [`scenes/overworld.ts`](../src/features/scenes/overworld.ts) / [`scenes/battle.ts`](../src/features/scenes/battle.ts)
 - [`game-state.ts`](../src/features/game-state.ts) / [`game-engine.ts`](../src/features/game-engine.ts)
-- [`preload.ts`](../src/lib/preload.ts)
+- [`fade-transition.ts`](../src/lib/fade-transition.ts) / [`preload.ts`](../src/lib/preload.ts)
 - [`layout.tsx`](../src/app/layout.tsx)
