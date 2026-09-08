@@ -1,9 +1,11 @@
 import { getOverlapArea, isColliding, type Rect } from "@/features/collisions";
 import { GAME_STATE } from "@/features/game-state";
 import type { Scene } from "@/features/scene";
-import { fade } from "@/lib/canvas/fade-transition";
 
 export const overworldScene: Scene = {
+  fadeIn: 1,
+  fadeOut: 1,
+
   update(dt) {
     const direction = GAME_STATE.keys.pressed.at(-1);
     if (direction) GAME_STATE.player.face(direction);
@@ -69,8 +71,5 @@ function overlapBattleZones(playerBox: Rect) {
   const isOverlap = GAME_STATE.battleZones.some((b) => getOverlapArea(playerBox, b) > offset);
 
   const battleChance = Math.random() < 0.01;
-  if (isOverlap && battleChance) {
-    GAME_STATE.scene = "battle";
-    fade.start("out");
-  }
+  if (isOverlap && battleChance) GAME_STATE.sceneName = "battle";
 }

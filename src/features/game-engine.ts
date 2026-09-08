@@ -4,12 +4,20 @@ import { assetsReady, GAME_STATE } from "@/features/game-state";
 import type { Scene, SceneName } from "@/features/scene";
 import { battleScene } from "@/features/scenes/battle";
 import { overworldScene } from "@/features/scenes/overworld";
-import { fade } from "@/lib/canvas/fade-transition";
+import { FADE } from "@/lib/canvas/fade-transition";
 
 const SCENES: Record<SceneName, Scene> = {
   overworld: overworldScene,
   battle: battleScene,
 };
+
+function enterScene(from: SceneName, to: SceneName) {
+  const showDuration = SCENES[from].fadeOut ?? 0;
+  const hideDuration = SCENES[to].fadeIn ?? 0;
+  GAME_STATE.sceneName = to;
+  GAME_STATE.sceneElapsed = 0;
+  FADE.start(showDuration, hideDuration);
+}
 
 export class GameEngine {
   private ctx: CanvasRenderingContext2D;
@@ -80,34 +88,26 @@ export class GameEngine {
     const dt = (time - this.lastTime) / 1000; // delta time in seconds
     this.lastTime = time;
 
-    const sceneBefore = GAME_STATE.scene;
-    const scene = SCENES[sceneBefore];
+    const sceneName = GAME_STATE.sceneName;
+    const scene = SCENES[sceneName];
     scene.update(dt);
+    GAME_STATE.sceneElapsed += dt;
 
-    // Reset the clock the instant a scene switches, however it happened —
-    // otherwise a fresh scene inherits time built up by the previous one.
-    if (GAME_STATE.scene !== sceneBefore) GAME_STATE.sceneElapsed = 0;
-    else GAME_STATE.sceneElapsed += dt;
+    const sceneChanged = GAME_STATE.sceneName !== sceneName;
+    const sceneExpired = scene.duration !== undefined && GAME_STATE.sceneElapsed >= scene.duration;
 
-    const activeScene = SCENES[GAME_STATE.scene];
+    if (sceneChanged) enterScene(sceneName, GAME_STATE.sceneName);
+    else if (sceneExpired) enterScene(sceneName, scene.next);
 
-    if (activeScene.duration !== undefined && GAME_STATE.sceneElapsed >= activeScene.duration) {
-      GAME_STATE.scene = activeScene.next;
-      GAME_STATE.sceneElapsed = 0;
-      fade.start("out");
-    }
+    FADE.update(dt);
 
-    const finishedFading = fade.update(dt);
-    if (finishedFading && fade.direction === "out") fade.start("in");
-
-    // Skip drawing while still ramping to black — otherwise whatever this
+    // Skip drawing while still showing the overlay — otherwise whatever this
     // scene draws bleeds through the still-transparent overlay before the
     // swap is actually hidden. The canvas just keeps the last painted
     // (frozen) frame in the meantime, since nothing draws over it.
-    const isFadingOut = fade.active && fade.direction === "out";
-    if (!isFadingOut) scene.draw(this.ctx);
+    if (FADE.phase !== "show") scene.draw(this.ctx);
 
-    fade.draw(this.ctx);
+    FADE.draw(this.ctx);
 
     // DEBUG: Center of the canvas
     // this.ctx.fillStyle = "rgba(255, 0, 0, 1)";

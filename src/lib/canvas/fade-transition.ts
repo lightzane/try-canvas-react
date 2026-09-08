@@ -1,44 +1,37 @@
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from "@/constants/game-settings";
 
-export type FadeDirection = "in" | "out";
+export type FadePhase = "idle" | "show" | "hide";
 
 export class FadeTransition {
-  private duration: number; // seconds
+  private showDuration = 0;
+  private hideDuration = 0;
   private elapsed = 0;
-  private phase: FadeDirection = "out";
-  active = false;
+  phase: FadePhase = "idle";
 
-  constructor(duration: number = 1) {
-    this.duration = duration;
-  }
-
-  get direction() {
-    return this.phase;
-  }
-
-  /** @param duration Overrides the duration set in the constructor, in seconds. */
-  start(direction: FadeDirection, duration?: number) {
-    this.phase = direction;
+  start(showDuration: number, hideDuration: number) {
+    this.showDuration = showDuration;
+    this.hideDuration = hideDuration;
+    this.phase = "show";
     this.elapsed = 0;
-    this.active = true;
-    if (duration !== undefined) this.duration = duration;
   }
 
-  /** Advances the fade by dt seconds. Returns true on the exact frame this phase finishes. */
-  update(dt: number): boolean {
-    if (!this.active) return false;
+  update(dt: number) {
+    if (this.phase === "idle") return;
 
+    const duration = this.phase === "show" ? this.showDuration : this.hideDuration;
     this.elapsed += dt;
-    if (this.elapsed < this.duration) return false;
+    if (this.elapsed < duration) return;
 
-    this.elapsed = this.duration;
-    this.active = false;
-    return true; // just finished
+    this.elapsed = 0;
+    this.phase = this.phase === "show" ? "hide" : "idle"; // fixed order: show → hide → idle
   }
 
   get alpha() {
-    const progress = Math.min(this.elapsed / this.duration, 1);
-    return this.phase === "out" ? progress : 1 - progress;
+    if (this.phase === "idle") return 0;
+    const duration = this.phase === "show" ? this.showDuration : this.hideDuration;
+    if (duration <= 0) return this.phase === "show" ? 1 : 0;
+    const progress = Math.min(this.elapsed / duration, 1);
+    return this.phase === "show" ? progress : 1 - progress;
   }
 
   draw(ctx: CanvasRenderingContext2D) {
@@ -48,4 +41,4 @@ export class FadeTransition {
   }
 }
 
-export const fade = new FadeTransition();
+export const FADE = new FadeTransition();

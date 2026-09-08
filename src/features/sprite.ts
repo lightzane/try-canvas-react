@@ -1,9 +1,16 @@
 export type Position = { x: number; y: number };
 
 interface SpriteProps {
-  image: HTMLImageElement;
+  /** The `src` for the underlying `<img>` element. */
+  src: string;
   position?: Position;
   frames?: SpriteFrames;
+}
+
+export function loadImage(src: string): HTMLImageElement {
+  const image = new Image();
+  image.src = src;
+  return image;
 }
 
 interface SpriteFrames {
@@ -24,12 +31,12 @@ interface SpriteFrames {
 }
 
 export class Sprite {
-  image: SpriteProps["image"];
+  image: HTMLImageElement;
   position: NonNullable<SpriteProps["position"]>;
   frames: Required<NonNullable<SpriteProps["frames"]>>;
 
-  constructor({ image, position = { x: 0, y: 0 }, frames = { max: 1 } }: SpriteProps) {
-    this.image = image;
+  constructor({ src, position = { x: 0, y: 0 }, frames = { max: 1 } }: SpriteProps) {
+    this.image = loadImage(src);
     this.position = position;
     this.frames = { max: 1, hold: 10, val: 0, elapsed: 0, ...frames };
   }

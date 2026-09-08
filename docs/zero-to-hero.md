@@ -86,24 +86,41 @@ export default function Layout() {
 
 ### Step 2: Draw one static image
 
-**File:** `src/app/layout.tsx` — inside the effect, after `canvas.height = CANVAS_HEIGHT;`:
+**File:** `src/app/layout.tsx`
 
 <!-- prettier-ignore -->
 ```ts
 import IMG_MAP_SRC from "@/assets/img/pallet-town.png";
+```
 
-const mapOrigin = { x: -780, y: -720 }; // (0, 0) on this map is open ocean — start over land instead
+<!-- prettier-ignore -->
+```ts
+    // -- snip --
+    canvas.width = CANVAS_WIDTH;
+    canvas.height = CANVAS_HEIGHT;
 
-const IMG_MAP = new Image();
-IMG_MAP.src = IMG_MAP_SRC; // an imported module value, not a raw path — Vite fingerprints this on build
+    // new:
+    const mapOrigin = { x: -780, y: -720 }; // (0, 0) on this map is open ocean, start over land instead
 
-IMG_MAP.onload = () => {
-  ctx.drawImage(IMG_MAP, mapOrigin.x, mapOrigin.y);
-};
+    const IMG_MAP = new Image();
+    IMG_MAP.src = IMG_MAP_SRC; // an imported module value, not a raw path — Vite fingerprints this on build
+
+    IMG_MAP.onload = () => {
+      ctx!.drawImage(IMG_MAP, mapOrigin.x, mapOrigin.y);
+    };
+  }, []);
+  // -- snip --
 ```
 
 > [!WARNING]
 > Must wait for `onload` — `drawImage` before load paints nothing.
+
+> [!WARNING]
+> `ctx!`, not `ctx` — the `if (!canvas || !ctx) return;` guard above narrows
+> `ctx` to non-null, but that narrowing doesn't survive into a nested
+> closure like this `onload` callback (TypeScript can't prove the closure
+> only runs after the guard, even though `ctx` is a `const`). Every closure
+> that touches `ctx` from here on needs the same `!`.
 
 > [!NOTE]
 > Reload — you should see land (grass/trees), not open ocean.
@@ -112,22 +129,29 @@ IMG_MAP.onload = () => {
 
 ### Step 3: Repaint continuously
 
-**File:** `src/app/layout.tsx` — same effect:
+**File:** `src/app/layout.tsx` — repaints every frame regardless of load
+timing, so `IMG_MAP.onload` isn't needed anymore:
 
 <!-- prettier-ignore -->
 ```ts
-function draw() {
-  ctx.drawImage(IMG_MAP, mapOrigin.x, mapOrigin.y);
-}
+    // -- snip --
+    IMG_MAP.src = IMG_MAP_SRC;
 
-let gameLoopId: number;
-function tick() {
-  gameLoopId = requestAnimationFrame(tick); // reschedule FIRST
-  draw();
-}
-tick();
+    function draw() { // was: IMG_MAP.onload = () => { ctx!.drawImage(...) }
+      ctx!.drawImage(IMG_MAP, mapOrigin.x, mapOrigin.y);
+    }
 
-return () => cancelAnimationFrame(gameLoopId);
+    // new:
+    let gameLoopId: number;
+    function tick() {
+      gameLoopId = requestAnimationFrame(tick); // reschedule FIRST
+      draw();
+    }
+    tick();
+
+    return () => cancelAnimationFrame(gameLoopId);
+  }, []);
+  // -- snip --
 ```
 
 > [!TIP]
@@ -148,16 +172,22 @@ return () => cancelAnimationFrame(gameLoopId);
 export type Position = { x: number; y: number }; // reused everywhere something needs an x/y
 
 interface SpriteProps {
-  image: HTMLImageElement;
+  src: string; // the <img> source — Sprite loads it, callers never touch Image directly
   position?: Position;
+}
+
+export function loadImage(src: string): HTMLImageElement {
+  const image = new Image();
+  image.src = src;
+  return image;
 }
 
 export class Sprite {
   image: HTMLImageElement;
   position: Position;
 
-  constructor({ image, position = { x: 0, y: 0 } }: SpriteProps) {
-    this.image = image;
+  constructor({ src, position = { x: 0, y: 0 } }: SpriteProps) {
+    this.image = loadImage(src);
     this.position = position;
   }
 
@@ -167,30 +197,45 @@ export class Sprite {
 }
 ```
 
+> [!TIP]
+> A source string in, a loaded `Image` out — every future sprite (map,
+> player, foreground, battle background) is created from a plain import,
+> never a manual `new Image()`.
+
 ### Step 5: Add the player as a second sprite
 
-**File:** `src/app/layout.tsx` — same effect:
+**File:** `src/app/layout.tsx` — `Sprite` now loads its own image, so
+delete `IMG_MAP`'s manual `new Image()`/`.src`/`.onload` entirely:
 
 <!-- prettier-ignore -->
 ```ts
 import IMG_PLAYER_SRC from "@/assets/img/playerDown.png";
+import { Sprite } from "@/features/sprite";
+```
 
-const IMG_PLAYER = new Image();
-IMG_PLAYER.src = IMG_PLAYER_SRC;
+<!-- prettier-ignore -->
+```ts
+    // -- snip --
+    const mapOrigin = { x: -780, y: -720 };
 
-const map = new Sprite({ image: IMG_MAP, position: { ...mapOrigin } }); // was: no position (defaulted to 0,0)
-const player = new Sprite({ image: IMG_PLAYER });
+    const map = new Sprite({ src: IMG_MAP_SRC, position: { ...mapOrigin } }); // was: const IMG_MAP = new Image(); IMG_MAP.src = IMG_MAP_SRC;
 
-// the player stays fixed at the canvas's center; the map scrolls under it later
-player.position = {
-  x: CANVAS_WIDTH / 2 - player.image.width / 2,
-  y: CANVAS_HEIGHT / 2 - player.image.height / 2,
-};
+    // new:
+    const player = new Sprite({ src: IMG_PLAYER_SRC });
 
-function draw() {
-  map.draw(ctx);
-  player.draw(ctx);
-}
+    // the player stays fixed at the canvas's center; the map scrolls under it later
+    player.position = {
+      x: CANVAS_WIDTH / 2 - player.image.width / 2,
+      y: CANVAS_HEIGHT / 2 - player.image.height / 2,
+    };
+
+    function draw() { // was: ctx!.drawImage(IMG_MAP, mapOrigin.x, mapOrigin.y) only
+      map.draw(ctx!);
+      player.draw(ctx!);
+    }
+
+    let gameLoopId: number;
+    // -- snip --
 ```
 
 > [!WARNING]
@@ -230,15 +275,9 @@ import { Sprite } from "@/features/sprite";
 
 export const mapOrigin = { x: -780, y: -720 }; // (0, 0) on this map is open ocean
 
-const IMG_MAP = new Image();
-IMG_MAP.src = IMG_MAP_SRC;
-
-const IMG_PLAYER = new Image();
-IMG_PLAYER.src = IMG_PLAYER_SRC;
-
 export const GAME_STATE = {
-  map: new Sprite({ image: IMG_MAP, position: { ...mapOrigin } }),
-  player: new Sprite({ image: IMG_PLAYER }),
+  map: new Sprite({ src: IMG_MAP_SRC, position: { ...mapOrigin } }),
+  player: new Sprite({ src: IMG_PLAYER_SRC }),
 };
 ```
 
@@ -323,12 +362,27 @@ export default function Layout() {
 
 ### Step 7: Track which key is held
 
-**File:** `src/features/controller.ts`
+**File:** `src/features/game-state.ts` — key state is data, so it lives
+here, not inside `Controller`:
 
 <!-- prettier-ignore -->
 ```ts
+export const GAME_STATE = {
+  // -- snip --
+  keys: { w: false, a: false, s: false, d: false }, // new
+};
+```
+
+**File:** `src/features/controller.ts` — `Controller` doesn't own `keys`,
+it's handed a reference to `GAME_STATE`'s:
+
+<!-- prettier-ignore -->
+```ts
+import { GAME_STATE } from "@/features/game-state";
+
 export type Direction = "w" | "a" | "s" | "d";
 
+// prettier-ignore
 const KEY_TO_DIRECTION: Record<string, Direction> = {
   w: "w", ArrowUp: "w",
   a: "a", ArrowLeft: "a",
@@ -337,7 +391,11 @@ const KEY_TO_DIRECTION: Record<string, Direction> = {
 };
 
 export class Controller {
-  keys = { w: false, a: false, s: false, d: false };
+  private readonly keys: (typeof GAME_STATE)["keys"];
+
+  constructor(keys: (typeof GAME_STATE)["keys"]) {
+    this.keys = keys;
+  }
 
   keydown = (e: KeyboardEvent) => {
     const dir = KEY_TO_DIRECTION[e.key];
@@ -356,26 +414,36 @@ extend `stop()` to remove the listeners:
 
 <!-- prettier-ignore -->
 ```ts
+import { Controller } from "@/features/controller"; // new
+
 export class GameEngine {
   // -- snip --
-  private controller = new Controller(); // new
+  private controller = new Controller(GAME_STATE.keys); // new
 
   // -- snip -- (constructor unchanged)
 
   start() {
-    window.addEventListener("keydown", this.controller.keydown); // new
-    window.addEventListener("keyup", this.controller.keyup);     // new
+    // new:
+    window.addEventListener("keydown", this.controller.keydown);
+    window.addEventListener("keyup", this.controller.keyup);
     this.gameLoopId = requestAnimationFrame(this.tick);
   }
 
   stop() {
     cancelAnimationFrame(this.gameLoopId);
-    window.removeEventListener("keydown", this.controller.keydown); // new
-    window.removeEventListener("keyup", this.controller.keyup);     // new
+    // new:
+    window.removeEventListener("keydown", this.controller.keydown);
+    window.removeEventListener("keyup", this.controller.keyup);
   }
   // -- snip --
 }
 ```
+
+> [!TIP]
+> `keys` lives on `GAME_STATE`, injected into `Controller` rather than
+> owned by it — anything that can see `GAME_STATE` can read the current
+> input directly. That's what lets scenes (later) check it themselves
+> instead of `GameEngine` handing it to them as a parameter.
 
 > [!WARNING]
 > Every `addEventListener` needs a matching `removeEventListener`, or
@@ -383,20 +451,26 @@ export class GameEngine {
 
 ### Step 8: Scroll the map instead of moving the player
 
-**File:** `src/features/game-engine.ts` — update `tick()`:
+**File:** `src/features/game-engine.ts`
 
 <!-- prettier-ignore -->
 ```ts
-private tick = () => {
-  this.gameLoopId = requestAnimationFrame(this.tick);
+export class GameEngine {
+  // -- snip --
 
-  if (this.controller.keys.w) GAME_STATE.map.position.y += 3; // map slides opposite the player's apparent direction
-  if (this.controller.keys.a) GAME_STATE.map.position.x += 3;
-  if (this.controller.keys.s) GAME_STATE.map.position.y -= 3;
-  if (this.controller.keys.d) GAME_STATE.map.position.x -= 3;
+  private tick = () => { // replaced
+    this.gameLoopId = requestAnimationFrame(this.tick);
 
-  this.draw();
-};
+    if (GAME_STATE.keys.w) GAME_STATE.map.position.y += 3; // map slides opposite the player's apparent direction
+    if (GAME_STATE.keys.a) GAME_STATE.map.position.x += 3;
+    if (GAME_STATE.keys.s) GAME_STATE.map.position.y -= 3;
+    if (GAME_STATE.keys.d) GAME_STATE.map.position.x -= 3;
+
+    this.draw();
+  };
+
+  // -- snip --
+}
 ```
 
 > [!NOTE]
@@ -406,13 +480,27 @@ private tick = () => {
 
 ### Step 9: Resolve to a single direction, most-recent wins
 
+**File:** `src/features/game-state.ts` — same shape change, since `keys`
+lives here now:
+
+<!-- prettier-ignore -->
+```ts
+import type { Direction } from "@/features/controller";
+
+export const GAME_STATE = {
+  // -- snip --
+  keys: { pressed: [] as Direction[] }, // was: { w: false, a: false, s: false, d: false }
+};
+```
+
 **File:** `src/features/controller.ts` — replace the flags with an ordered
-array, most-recently-pressed goes last:
+array, most-recently-pressed goes last (`keys` itself is still just the
+constructor-injected reference from Step 7, unchanged):
 
 <!-- prettier-ignore -->
 ```ts
 export class Controller {
-  keys = { pressed: [] as Direction[] };
+  // -- snip -- (constructor unchanged)
 
   keydown = (e: KeyboardEvent) => {
     const dir = KEY_TO_DIRECTION[e.key];
@@ -437,22 +525,30 @@ export class Controller {
 > release the top one, and whatever's underneath is automatically what's left.
 
 **File:** `src/features/game-engine.ts` — update `tick()` to read it
-instead of the old booleans:
+instead of the old booleans. Note it reads `GAME_STATE.keys` directly, not
+`this.controller.keys` — `keys` is private on `Controller` now, only
+`GAME_STATE` is the shared reference:
 
 <!-- prettier-ignore -->
 ```ts
-private tick = () => {
-  this.gameLoopId = requestAnimationFrame(this.tick);
+export class GameEngine {
+  // -- snip --
 
-  const direction = this.controller.keys.pressed.at(-1); // new
+  private tick = () => { // replaced
+    this.gameLoopId = requestAnimationFrame(this.tick);
 
-  if (direction === "w") GAME_STATE.map.position.y += 3;
-  else if (direction === "a") GAME_STATE.map.position.x += 3;
-  else if (direction === "s") GAME_STATE.map.position.y -= 3;
-  else if (direction === "d") GAME_STATE.map.position.x -= 3;
+    const direction = GAME_STATE.keys.pressed.at(-1); // new
 
-  this.draw();
-};
+    if (direction === "w") GAME_STATE.map.position.y += 3; // was: if (GAME_STATE.keys.w) ..., same for the other 3
+    else if (direction === "a") GAME_STATE.map.position.x += 3;
+    else if (direction === "s") GAME_STATE.map.position.y -= 3;
+    else if (direction === "d") GAME_STATE.map.position.x -= 3;
+
+    this.draw();
+  };
+
+  // -- snip --
+}
 ```
 
 > [!NOTE]
@@ -470,8 +566,7 @@ it — the window lost focus, no key events reach it. That key stays stuck
 <!-- prettier-ignore -->
 ```ts
 export class Controller {
-  keys = { pressed: [] as Direction[] };
-  // -- snip --
+  // -- snip -- (constructor unchanged)
 
   blur = () => { // new
     this.keys.pressed.length = 0;
@@ -484,18 +579,24 @@ the existing listeners:
 
 <!-- prettier-ignore -->
 ```ts
-start() {
-  window.addEventListener("keydown", this.controller.keydown);
-  window.addEventListener("keyup", this.controller.keyup);
-  window.addEventListener("blur", this.controller.blur); // new
-  this.gameLoopId = requestAnimationFrame(this.tick);
-}
+export class GameEngine {
+  // -- snip --
 
-stop() {
-  cancelAnimationFrame(this.gameLoopId);
-  window.removeEventListener("keydown", this.controller.keydown);
-  window.removeEventListener("keyup", this.controller.keyup);
-  window.removeEventListener("blur", this.controller.blur); // new
+  start() {
+    window.addEventListener("keydown", this.controller.keydown);
+    window.addEventListener("keyup", this.controller.keyup);
+    window.addEventListener("blur", this.controller.blur); // new
+    this.gameLoopId = requestAnimationFrame(this.tick);
+  }
+
+  stop() {
+    cancelAnimationFrame(this.gameLoopId);
+    window.removeEventListener("keydown", this.controller.keydown);
+    window.removeEventListener("keyup", this.controller.keyup);
+    window.removeEventListener("blur", this.controller.blur); // new
+  }
+
+  // -- snip --
 }
 ```
 
@@ -530,7 +631,7 @@ is new on the interface and constructor; `width`/`height`/`step()` are new;
 <!-- prettier-ignore -->
 ```ts
 interface SpriteProps {
-  image: HTMLImageElement;
+  src: string;
   position?: Position;
   frames?: SpriteFrames; // new
 }
@@ -540,14 +641,15 @@ export class Sprite {
   position: Position;
   frames: Required<SpriteFrames>; // new — same 4 fields, now all mandatory
 
-  constructor({ image, position = { x: 0, y: 0 }, frames = {} }: SpriteProps) {
-    this.image = image;
+  constructor({ src, position = { x: 0, y: 0 }, frames = {} }: SpriteProps) {
+    this.image = loadImage(src);
     this.position = position;
     this.frames = { max: 1, hold: 10, val: 0, elapsed: 0, ...frames }; // new
   }
 
-  get width() { return this.image.width / this.frames.max; } // new
-  get height() { return this.image.height; }                 // new
+  // new:
+  get width() { return this.image.width / this.frames.max; }
+  get height() { return this.image.height; }
 
   draw(ctx: CanvasRenderingContext2D) { // replaced
     const { x, y } = this.position;
@@ -587,18 +689,24 @@ Only the player needs 4 direction sheets — doesn't belong on `Sprite`
 
 <!-- prettier-ignore -->
 ```ts
+import type { Direction } from "@/features/controller";
+import { loadImage, Sprite } from "@/features/sprite";
+import type { Position } from "@/features/sprite";
+
 interface PlayerProps {
   position?: Position;
-  sprites: Record<Direction, HTMLImageElement>;
+  sprites: Record<Direction, string>;
   facing?: Direction;
 }
 
 export class Player extends Sprite {
-  private sprites: PlayerProps["sprites"];
+  private sprites: Record<Direction, HTMLImageElement>;
 
   constructor({ sprites, facing = "s", ...rest }: PlayerProps) {
-    super({ image: sprites[facing], frames: { max: 4 }, ...rest });
-    this.sprites = sprites;
+    super({ src: sprites[facing], frames: { max: 4 }, ...rest });
+    this.sprites = Object.fromEntries(
+      Object.entries(sprites).map(([direction, src]) => [direction, loadImage(src)]),
+    ) as Record<Direction, HTMLImageElement>;
   }
 
   face(direction: Direction) {
@@ -627,17 +735,10 @@ const IMGS_PLAYER_SRC: Record<Direction, string> = {
   d: IMG_PLAYER_RIGHT,
 };
 
-const sprites = Object.fromEntries(
-  Object.entries(IMGS_PLAYER_SRC).map(([direction, src]) => {
-    const image = new Image();
-    image.src = src;
-    return [direction, image];
-  }),
-) as Record<Direction, HTMLImageElement>;
-
 export const GAME_STATE = {
-  map: new Sprite({ image: IMG_MAP, position: { ...mapOrigin } }),
-  player: new Player({ sprites }), // was: new Sprite({ image: IMG_PLAYER })
+  map: new Sprite({ src: IMG_MAP_SRC, position: { ...mapOrigin } }),
+  player: new Player({ sprites: IMGS_PLAYER_SRC }), // was: new Sprite({ src: IMG_PLAYER_SRC })
+  // -- snip --
 };
 ```
 
@@ -650,18 +751,26 @@ only while a key is held:
 
 <!-- prettier-ignore -->
 ```ts
-private tick = () => {
-  this.gameLoopId = requestAnimationFrame(this.tick);
-
-  const direction = this.controller.keys.pressed.at(-1);
-  if (direction) GAME_STATE.player.face(direction);       // new
-  else GAME_STATE.player.frames.val = 0; // standing pose // new
-
-  if (direction === "w") GAME_STATE.map.position.y += 3;
+export class GameEngine {
   // -- snip --
 
-  this.draw();
-};
+  private tick = () => { // replaced
+    this.gameLoopId = requestAnimationFrame(this.tick);
+
+    const direction = GAME_STATE.keys.pressed.at(-1);
+
+    // new:
+    if (direction) GAME_STATE.player.face(direction);
+    else GAME_STATE.player.frames.val = 0; // standing pose
+
+    if (direction === "w") GAME_STATE.map.position.y += 3;
+    // -- snip --
+
+    this.draw();
+  };
+
+  // -- snip --
+}
 ```
 
 > [!NOTE]
@@ -686,7 +795,7 @@ const collisions = [
 ];
 ```
 
-Not exported — only `createBoundaries`, in the same file, ever reads it.
+Not exported — only `createBoundaries`, added next step, ever reads it.
 
 Row-major, 70 columns wide. `0` = walkable; `1025` = solid.
 
@@ -761,6 +870,7 @@ top, the giant data blob out of the way at the bottom:
 
 <!-- prettier-ignore -->
 ```ts
+// new — goes at the top of the file, everything below stays below:
 import { createZones } from "@/features/zone";
 import type { Position } from "@/features/sprite";
 
@@ -770,6 +880,8 @@ const MAP_COLUMNS = 70;
 export function createBoundaries(origin: Position) {
   return createZones({ tiles: collisions, matchValue: COLLISION_TILE, columns: MAP_COLUMNS, origin });
 }
+
+// -- snip -- (collisions array from Step 13 stays below, unchanged)
 ```
 
 > [!WARNING]
@@ -781,9 +893,10 @@ positioned from the same `mapOrigin` the map itself uses:
 
 <!-- prettier-ignore -->
 ```ts
+import { createBoundaries } from "@/features/collisions";
+
 export const GAME_STATE = {
-  map: new Sprite({ image: IMG_MAP, position: { ...mapOrigin } }),
-  player: new Player({ sprites }),
+  // -- snip --
   boundaries: createBoundaries(mapOrigin), // new — must match the map's own origin
 };
 ```
@@ -793,13 +906,19 @@ shared `move()`, replacing direct `map.position` mutation:
 
 <!-- prettier-ignore -->
 ```ts
-private move(dx: number, dy: number) {
-  GAME_STATE.map.position.x += dx;
-  GAME_STATE.map.position.y += dy;
-  GAME_STATE.boundaries.forEach((b) => {
-    b.position.x += dx;
-    b.position.y += dy;
-  });
+export class GameEngine {
+  // -- snip --
+
+  private move(dx: number, dy: number) { // new
+    GAME_STATE.map.position.x += dx;
+    GAME_STATE.map.position.y += dy;
+    GAME_STATE.boundaries.forEach((b) => {
+      b.position.x += dx;
+      b.position.y += dy;
+    });
+  }
+
+  // -- snip --
 }
 ```
 
@@ -807,16 +926,22 @@ private move(dx: number, dy: number) {
 
 <!-- prettier-ignore -->
 ```ts
-private tick = () => {
+export class GameEngine {
   // -- snip --
 
-  if (direction === "w") this.move(0, 3); // was: GAME_STATE.map.position.y += 3, same for the other 3
-  else if (direction === "a") this.move(3, 0);
-  else if (direction === "s") this.move(0, -3);
-  else if (direction === "d") this.move(-3, 0);
+  private tick = () => {
+    // -- snip --
+
+    if (direction === "w") this.move(0, 3); // was: GAME_STATE.map.position.y += 3, same for the other 3
+    else if (direction === "a") this.move(3, 0);
+    else if (direction === "s") this.move(0, -3);
+    else if (direction === "d") this.move(-3, 0);
+
+    // -- snip --
+  };
 
   // -- snip --
-};
+}
 ```
 
 > [!WARNING]
@@ -829,9 +954,8 @@ private tick = () => {
 
 <!-- prettier-ignore -->
 ```ts
-import type { Position } from "@/features/sprite";
-
-interface Rect {
+// -- snip -- (createBoundaries, from Step 14, stays above)
+interface Rect { // new
   position: Position;
   width: number;
   height: number;
@@ -857,14 +981,20 @@ the direction you're about to move, before committing to it:
 
 <!-- prettier-ignore -->
 ```ts
-private attemptMove(dx: number, dy: number) {
-  const box = {
-    position: { x: GAME_STATE.player.position.x - dx, y: GAME_STATE.player.position.y - dy },
-    width: GAME_STATE.player.width,
-    height: GAME_STATE.player.height,
-  };
-  const blocked = GAME_STATE.boundaries.some((b) => isColliding(box, b));
-  if (!blocked) this.move(dx, dy);
+export class GameEngine {
+  // -- snip --
+
+  private attemptMove(dx: number, dy: number) { // new
+    const box = {
+      position: { x: GAME_STATE.player.position.x - dx, y: GAME_STATE.player.position.y - dy },
+      width: GAME_STATE.player.width,
+      height: GAME_STATE.player.height,
+    };
+    const blocked = GAME_STATE.boundaries.some((b) => isColliding(box, b));
+    if (!blocked) this.move(dx, dy);
+  }
+
+  // -- snip --
 }
 ```
 
@@ -878,16 +1008,22 @@ private attemptMove(dx: number, dy: number) {
 
 <!-- prettier-ignore -->
 ```ts
-private tick = () => {
+export class GameEngine {
   // -- snip --
 
-  if (direction === "w") this.attemptMove(0, 3); // was: this.move(...), same for the other 3
-  else if (direction === "a") this.attemptMove(3, 0);
-  else if (direction === "s") this.attemptMove(0, -3);
-  else if (direction === "d") this.attemptMove(-3, 0);
+  private tick = () => {
+    // -- snip --
+
+    if (direction === "w") this.attemptMove(0, 3); // was: this.move(...), same for the other 3
+    else if (direction === "a") this.attemptMove(3, 0);
+    else if (direction === "s") this.attemptMove(0, -3);
+    else if (direction === "d") this.attemptMove(-3, 0);
+
+    // -- snip --
+  };
 
   // -- snip --
-};
+}
 ```
 
 > [!NOTE]
@@ -909,14 +1045,10 @@ to `GAME_STATE` at the same origin as the map:
 ```ts
 import IMG_MAP_FG_SRC from "@/assets/img/pallet-town-foreground.png";
 
-const IMG_MAP_FG = new Image();
-IMG_MAP_FG.src = IMG_MAP_FG_SRC;
-
 export const GAME_STATE = {
-  map: new Sprite({ image: IMG_MAP, position: { ...mapOrigin } }),
-  foreground: new Sprite({ image: IMG_MAP_FG, position: { ...mapOrigin } }), // new
-  player: new Player({ sprites }),
-  boundaries: createBoundaries(mapOrigin),
+  // -- snip --
+  foreground: new Sprite({ src: IMG_MAP_FG_SRC, position: { ...mapOrigin } }), // new
+  // -- snip --
 };
 ```
 
@@ -924,10 +1056,16 @@ export const GAME_STATE = {
 
 <!-- prettier-ignore -->
 ```ts
-private draw() {
-  GAME_STATE.map.draw(this.ctx);
-  GAME_STATE.player.draw(this.ctx);
-  GAME_STATE.foreground.draw(this.ctx); // new
+export class GameEngine {
+  // -- snip --
+
+  private draw() {
+    GAME_STATE.map.draw(this.ctx);
+    GAME_STATE.player.draw(this.ctx);
+    GAME_STATE.foreground.draw(this.ctx); // new
+  }
+
+  // -- snip --
 }
 ```
 
@@ -935,15 +1073,24 @@ It also has to scroll with the map, same as boundaries — fold it into `move()`
 
 <!-- prettier-ignore -->
 ```ts
-private move(dx: number, dy: number) {
-  GAME_STATE.map.position.x += dx;
-  GAME_STATE.map.position.y += dy;
-  GAME_STATE.foreground.position.x += dx; // new
-  GAME_STATE.foreground.position.y += dy; // new
-  GAME_STATE.boundaries.forEach((b) => {
-    b.position.x += dx;
-    b.position.y += dy;
-  });
+export class GameEngine {
+  // -- snip --
+
+  private move(dx: number, dy: number) {
+    GAME_STATE.map.position.x += dx;
+    GAME_STATE.map.position.y += dy;
+
+    // new:
+    GAME_STATE.foreground.position.x += dx;
+    GAME_STATE.foreground.position.y += dy;
+
+    GAME_STATE.boundaries.forEach((b) => {
+      b.position.x += dx;
+      b.position.y += dy;
+    });
+  }
+
+  // -- snip --
 }
 ```
 
@@ -972,18 +1119,20 @@ interface, the field, and the constructor:
 ```ts
 interface PlayerProps {
   position?: Position;
-  sprites: Record<Direction, HTMLImageElement>;
+  sprites: Record<Direction, string>;
   facing?: Direction;
   moveSpeed?: number; // new
 }
 
 export class Player extends Sprite {
-  private sprites: PlayerProps["sprites"];
+  private sprites: Record<Direction, HTMLImageElement>;
   moveSpeed: number; // new — pixels per second
 
   constructor({ sprites, facing = "s", moveSpeed = 200, ...rest }: PlayerProps) { // new: moveSpeed = 200
-    super({ image: sprites[facing], frames: { max: 4 }, ...rest });
-    this.sprites = sprites;
+    super({ src: sprites[facing], frames: { max: 4 }, ...rest });
+    this.sprites = Object.fromEntries(
+      Object.entries(sprites).map(([direction, src]) => [direction, loadImage(src)]),
+    ) as Record<Direction, HTMLImageElement>;
     this.moveSpeed = moveSpeed; // new
   }
 
@@ -1018,7 +1167,7 @@ export class GameEngine {
   };
 
   private update(dt: number) { // new
-    const direction = this.controller.keys.pressed.at(-1);
+    const direction = GAME_STATE.keys.pressed.at(-1);
     if (direction) GAME_STATE.player.face(direction);
     else GAME_STATE.player.frames.val = 0;
 
@@ -1061,14 +1210,38 @@ export async function preload(images: HTMLImageElement[]) {
 > Reject on failure, don't silently resolve — a missing hero sprite should
 > crash loudly, not quietly render broken.
 
-**File:** `src/features/game-state.ts` — export a promise covering every
-loaded image:
+**File:** `src/features/sprite-player.ts` — expose the loaded sprites so
+`preload()` can wait on all 4, not just whichever one is currently facing:
 
 <!-- prettier-ignore -->
 ```ts
-import { preload } from "@/lib/preload";
+export class Player extends Sprite {
+  // -- snip --
 
-export const assetsReady = preload([IMG_MAP, IMG_MAP_FG, ...Object.values(sprites)]);
+  face(direction: Direction) {
+    this.image = this.sprites[direction];
+    this.step();
+  }
+
+  get images() { // new
+    return Object.values(this.sprites);
+  }
+}
+```
+
+**File:** `src/features/game-state.ts`
+
+<!-- prettier-ignore -->
+```ts
+import { preload } from "@/lib/preload"; // new
+
+// -- snip -- (GAME_STATE unchanged)
+
+export const assetsReady = preload([ // new
+  GAME_STATE.map.image,
+  GAME_STATE.foreground.image,
+  ...GAME_STATE.player.images,
+]);
 ```
 
 **File:** `src/features/game-engine.ts` — gate `start()` on it, and guard
@@ -1084,12 +1257,14 @@ export class GameEngine {
 
   // -- snip -- (constructor unchanged)
 
-  start() {
+  start() { // replaced — was: ...blur); this.gameLoopId = requestAnimationFrame(this.tick); }
     window.addEventListener("keydown", this.controller.keydown);
     window.addEventListener("keyup", this.controller.keyup);
     window.addEventListener("blur", this.controller.blur);
 
-    assetsReady.then(() => { // new
+    // the old synchronous `this.gameLoopId = requestAnimationFrame(this.tick);` is GONE —
+    // it now only happens inside this gate, or the loop starts before assets exist
+    assetsReady.then(() => {
       if (this.cancelled) return;
       this.gameLoopId = requestAnimationFrame(this.tick);
     });
@@ -1119,11 +1294,12 @@ exactly this: a second Tiled layer, checked with a deeper overlap than
 
 ### Step 19: Compute how much two rects overlap
 
-**File:** `src/features/collisions.ts` — add below `isColliding`:
+**File:** `src/features/collisions.ts`
 
 <!-- prettier-ignore -->
 ```ts
-export function getOverlapArea(a: Rect, b: Rect): number {
+// -- snip -- (isColliding, from Step 15, stays above)
+export function getOverlapArea(a: Rect, b: Rect): number { // new
   const overlap = getOverlapRect(a, b);
   return overlap ? overlap.width * overlap.height : 0;
 }
@@ -1172,18 +1348,18 @@ Visually, `left`/`top`/`right`/`bottom` are just whichever edge of `a` or
 
 ### Step 20: Turn a second layer into zones, and trigger on deep overlap
 
-**File:** `src/features/collisions.ts` — same pattern as `createBoundaries`,
-reusing `COLLISION_TILE` since it's the same marker tile painted on a
-different Tiled layer, exported the same way as the wall layer earlier:
+**File:** `src/features/collisions.ts` — reuses `COLLISION_TILE`, since
+it's the same marker tile painted on a different Tiled layer:
 
 <!-- prettier-ignore -->
 ```ts
-export function createBattleZones(origin: Position) {
+// -- snip -- (createBoundaries, COLLISION_TILE, MAP_COLUMNS from Step 14 stay above)
+export function createBattleZones(origin: Position) { // new
   return createZones({ tiles: battleZones, matchValue: COLLISION_TILE, columns: MAP_COLUMNS, origin });
 }
 
 // prettier-ignore
-const battleZones = [
+const battleZones = [ // new
   0, 0, 0, 0, 0, /* ...continues for all 70×40 = 2800 tiles... */ 1025, 0, 0,
 ];
 ```
@@ -1192,12 +1368,12 @@ const battleZones = [
 
 <!-- prettier-ignore -->
 ```ts
+import { createBattleZones } from "@/features/collisions";
+
 export const GAME_STATE = {
-  map: new Sprite({ image: IMG_MAP, position: { ...mapOrigin } }),
-  foreground: new Sprite({ image: IMG_MAP_FG, position: { ...mapOrigin } }),
-  player: new Player({ sprites }),
-  boundaries: createBoundaries(mapOrigin),
+  // -- snip --
   battleZones: createBattleZones(mapOrigin), // new
+  // -- snip --
 };
 ```
 
@@ -1206,17 +1382,23 @@ same as boundaries:
 
 <!-- prettier-ignore -->
 ```ts
-private move(dx: number, dy: number) {
-  GAME_STATE.map.position.x += dx;
-  GAME_STATE.map.position.y += dy;
-  GAME_STATE.foreground.position.x += dx;
-  GAME_STATE.foreground.position.y += dy;
-  [GAME_STATE.boundaries, GAME_STATE.battleZones] // was: GAME_STATE.boundaries.forEach(...)
-    .flat()
-    .forEach((b) => {
-      b.position.x += dx;
-      b.position.y += dy;
-    });
+export class GameEngine {
+  // -- snip --
+
+  private move(dx: number, dy: number) {
+    GAME_STATE.map.position.x += dx;
+    GAME_STATE.map.position.y += dy;
+    GAME_STATE.foreground.position.x += dx;
+    GAME_STATE.foreground.position.y += dy;
+    [GAME_STATE.boundaries, GAME_STATE.battleZones] // was: GAME_STATE.boundaries.forEach(...)
+      .flat()
+      .forEach((b) => {
+        b.position.x += dx;
+        b.position.y += dy;
+      });
+  }
+
+  // -- snip --
 }
 ```
 
@@ -1224,19 +1406,25 @@ Then check it in `attemptMove`, before the wall check:
 
 <!-- prettier-ignore -->
 ```ts
-private attemptMove(dx: number, dy: number) {
-  const box = {
-    position: { x: GAME_STATE.player.position.x - dx, y: GAME_STATE.player.position.y - dy },
-    width: GAME_STATE.player.width,
-    height: GAME_STATE.player.height,
-  };
+export class GameEngine {
+  // -- snip --
 
-  const playerArea = box.width * box.height;
-  const enteredZone = GAME_STATE.battleZones.some((z) => getOverlapArea(box, z) > playerArea / 2);
-  if (enteredZone && Math.random() < 0.01) console.log("Battle Activation");
+  private attemptMove(dx: number, dy: number) {
+    const box = {
+      position: { x: GAME_STATE.player.position.x - dx, y: GAME_STATE.player.position.y - dy },
+      width: GAME_STATE.player.width,
+      height: GAME_STATE.player.height,
+    };
 
-  const blocked = GAME_STATE.boundaries.some((b) => isColliding(box, b));
-  if (!blocked) this.move(dx, dy);
+    const playerArea = box.width * box.height;
+    const enteredZone = GAME_STATE.battleZones.some((z) => getOverlapArea(box, z) > playerArea / 2);
+    if (enteredZone && Math.random() < 0.01) console.log("Battle Activation");
+
+    const blocked = GAME_STATE.boundaries.some((b) => isColliding(box, b));
+    if (!blocked) this.move(dx, dy);
+  }
+
+  // -- snip --
 }
 ```
 
@@ -1253,9 +1441,9 @@ private attemptMove(dx: number, dy: number) {
 ## Split Behavior by Scene
 
 Not every game needs this either — it only matters once entering a battle
-should actually change what's on screen. Right now `GAME_STATE.scene`
+should actually change what's on screen. Right now `GAME_STATE.sceneName`
 flips to `"battle"` and nothing happens. Giving each scene its own
-`update`/`draw` pair, instead of branching on `GAME_STATE.scene` inside
+`update`/`draw` pair, instead of branching on `GAME_STATE.sceneName` inside
 `GameEngine`, means adding a real battle screen later is one new file, not
 a growing pile of `if` checks.
 
@@ -1265,19 +1453,17 @@ a growing pile of `if` checks.
 
 <!-- prettier-ignore -->
 ```ts
-import type { Direction } from "@/features/controller";
-
 export type SceneName = "overworld" | "battle";
 
 export interface Scene {
-  update(dt: number, direction: Direction | undefined): void;
+  update(dt: number): void;
   draw(ctx: CanvasRenderingContext2D): void;
 }
 ```
 
 > [!TIP]
 > `SceneName` is a plain string, not the scene object itself — so a scene
-> can switch to another one by name (`GAME_STATE.scene = "battle"`)
+> can switch to another one by name (`GAME_STATE.sceneName = "battle"`)
 > without importing that other scene's file.
 
 ### Step 22: Track which scene is active
@@ -1289,12 +1475,8 @@ export interface Scene {
 import type { SceneName } from "@/features/scene";
 
 export const GAME_STATE = {
-  map: new Sprite({ image: IMG_MAP, position: { ...mapOrigin } }),
-  foreground: new Sprite({ image: IMG_MAP_FG, position: { ...mapOrigin } }),
-  player: new Player({ sprites }),
-  boundaries: createBoundaries(mapOrigin),
-  battleZones: createBattleZones(mapOrigin),
-  scene: "overworld" as SceneName, // new
+  // -- snip --
+  sceneName: "overworld" as SceneName, // new
 };
 ```
 
@@ -1311,7 +1493,8 @@ import { GAME_STATE } from "@/features/game-state";
 import type { Scene } from "@/features/scene";
 
 export const overworldScene: Scene = {
-  update(dt, direction) {
+  update(dt) {
+    const direction = GAME_STATE.keys.pressed.at(-1);
     if (direction) GAME_STATE.player.face(direction);
     else GAME_STATE.player.frames.val = 0;
 
@@ -1352,7 +1535,7 @@ function attemptMove(dx: number, dy: number) {
 
   const playerArea = box.width * box.height;
   const enteredZone = GAME_STATE.battleZones.some((z) => getOverlapArea(box, z) > playerArea / 2);
-  if (enteredZone && Math.random() < 0.01) GAME_STATE.scene = "battle"; // was: console.log("Battle Activation")
+  if (enteredZone && Math.random() < 0.01) GAME_STATE.sceneName = "battle"; // was: console.log("Battle Activation")
 
   const blocked = GAME_STATE.boundaries.some((b) => isColliding(box, b));
   if (!blocked) move(dx, dy);
@@ -1403,9 +1586,8 @@ export class GameEngine {
     const dt = (time - this.lastTime) / 1000;
     this.lastTime = time;
 
-    const direction = this.controller.keys.pressed.at(-1);
-    const scene = SCENES[GAME_STATE.scene];
-    scene.update(dt, direction);
+    const scene = SCENES[GAME_STATE.sceneName];
+    scene.update(dt);
     scene.draw(this.ctx);
   };
   // -- snip --
@@ -1419,61 +1601,55 @@ export class GameEngine {
 
 > [!NOTE]
 > Same game as before this step — nothing should look or behave
-> differently yet. `GAME_STATE.scene` switching to `"battle"` does nothing
+> differently yet. `GAME_STATE.sceneName` switching to `"battle"` does nothing
 > visible until a later step gives `battleScene` something to draw.
 
 ## Fade Between Scenes
 
 An instant cut between scenes is jarring. A brief fade to black hides the
-swap — and doubles as a way to know, in code, exactly when it's safe to
-reveal the next scene.
+swap. Each scene owns its own fade timing — a gentle overworld doesn't
+force every future scene into the same pacing.
 
-### Step 26: A duration-based fade, reusable for any transition
+### Step 26: A fade that's just a black overlay with a timer
 
-**File:** `src/lib/fade-transition.ts`
+**File:** `src/lib/canvas/fade-transition.ts`
 
 <!-- prettier-ignore -->
 ```ts
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from "@/constants/game-settings";
 
-export type FadeDirection = "in" | "out";
+export type FadePhase = "idle" | "show" | "hide";
 
 export class FadeTransition {
-  private duration: number;
+  private showDuration = 0;
+  private hideDuration = 0;
   private elapsed = 0;
-  private phase: FadeDirection = "out";
-  active = false;
+  phase: FadePhase = "idle";
 
-  constructor(duration: number = 1) {
-    this.duration = duration;
-  }
-
-  get direction() {
-    return this.phase;
-  }
-
-  start(direction: FadeDirection, duration?: number) {
-    this.phase = direction;
+  start(showDuration: number, hideDuration: number) {
+    this.showDuration = showDuration;
+    this.hideDuration = hideDuration;
+    this.phase = "show";
     this.elapsed = 0;
-    this.active = true;
-    if (duration !== undefined) this.duration = duration;
   }
 
-  /** Advances by dt seconds. Returns true on the exact frame this phase finishes. */
-  update(dt: number): boolean {
-    if (!this.active) return false;
+  update(dt: number) {
+    if (this.phase === "idle") return;
 
+    const duration = this.phase === "show" ? this.showDuration : this.hideDuration;
     this.elapsed += dt;
-    if (this.elapsed < this.duration) return false;
+    if (this.elapsed < duration) return;
 
-    this.elapsed = this.duration;
-    this.active = false;
-    return true;
+    this.elapsed = 0;
+    this.phase = this.phase === "show" ? "hide" : "idle"; // fixed order: show → hide → idle
   }
 
   get alpha() {
-    const progress = Math.min(this.elapsed / this.duration, 1);
-    return this.phase === "out" ? progress : 1 - progress;
+    if (this.phase === "idle") return 0;
+    const duration = this.phase === "show" ? this.showDuration : this.hideDuration;
+    if (duration <= 0) return this.phase === "show" ? 1 : 0;
+    const progress = Math.min(this.elapsed / duration, 1);
+    return this.phase === "show" ? progress : 1 - progress;
   }
 
   draw(ctx: CanvasRenderingContext2D) {
@@ -1483,61 +1659,82 @@ export class FadeTransition {
   }
 }
 
-export const fade = new FadeTransition();
+export const FADE = new FadeTransition();
 ```
 
 > [!TIP]
-> `start()`'s second argument overrides the constructor's duration for
-> just that call — a quick flash and a slow dramatic fade can share this
-> same instance instead of needing two.
+> `show`/`hide` describe the black overlay itself, not either scene —
+> `show` means it's becoming opaque (covering the screen), `hide` means
+> it's becoming transparent (revealing whatever's now underneath). Every
+> transition runs the same fixed order: `show` → `hide` → `idle`.
 
-### Step 27: Trigger the fade when battle starts
+### Step 27: Let a scene declare when it ends and how it fades
 
-**File:** `src/features/scenes/overworld.ts`
+**File:** `src/features/scene.ts`
 
 <!-- prettier-ignore -->
-```diff
-+ import { fade } from "@/lib/fade-transition";
+```ts
+interface SceneBase {
+  update(dt: number): void;
+  draw(ctx: CanvasRenderingContext2D): void;
+  /** This scene's own reveal duration, in seconds; unset = instant. */
+  fadeIn?: number;
+  /** This scene's own exit duration, in seconds; unset = instant. */
+  fadeOut?: number;
+}
 
-  function attemptMove(dx: number, dy: number) {
-    // -- snip --
+// duration and next are set together, or not at all — never just one
+type SceneTransition =
+  | { duration: number; next: SceneName }
+  | { duration?: never; next?: never };
 
--   if (enteredZone && Math.random() < 0.01) GAME_STATE.scene = "battle";
-+   if (enteredZone && Math.random() < 0.01) {
-+     GAME_STATE.scene = "battle";
-+     fade.start("out");
-+   }
-
-    // -- snip --
-  }
+export type Scene = SceneBase & SceneTransition; // was: export interface Scene { update...; draw...; }
 ```
 
-### Step 28: Let a scene declare when it should end
+> [!TIP]
+> `fadeIn`/`fadeOut` belong to the scene they describe — a gentle overworld
+> and a snappy battle can each set only what they need, and any pairing
+> between them just works without a lookup table.
 
-**File:** `src/features/scene.ts` — add to `Scene`:
+> [!WARNING]
+> `duration`/`next` are NOT two independent optionals — a scene with a
+> `duration` but no `next` would auto-expire into nothing. The union forces
+> both or neither, so a check like `scene.duration !== undefined` also
+> narrows `scene.next` to a guaranteed `SceneName` right where Step 30 needs
+> it — no separate null-check, no runtime crash if someone sets one without
+> the other.
+
+### Step 28: Give each scene its own fade timing
+
+**File:** `src/features/scenes/overworld.ts` — gentle both ways; the
+trigger itself doesn't change, it never touches `FADE` at all:
 
 <!-- prettier-ignore -->
-```diff
-  export interface Scene {
-    update(dt: number, direction: Direction | undefined): void;
-    draw(ctx: CanvasRenderingContext2D): void;
-+   /** Set together with `next` to auto-transition after this many seconds. */
-+   duration?: number;
-+   next?: SceneName;
-  }
+```ts
+export const overworldScene: Scene = {
+  // new:
+  fadeIn: 1,
+  fadeOut: 1,
+
+  // -- snip -- (update, draw unchanged)
+};
+
+// -- snip -- (move, attemptMove — declared below the object, unchanged)
 ```
 
-**File:** `src/features/scenes/battle.ts`
+**File:** `src/features/scenes/battle.ts` — unchanged from before; leaving
+`fadeIn`/`fadeOut` unset means instant, both ways:
 
 <!-- prettier-ignore -->
-```diff
-  export const battleScene: Scene = {
-+   duration: 5,
-+   next: "overworld",
-+
-    update() {},
-    draw() {},
-  };
+```ts
+export const battleScene: Scene = {
+  // new:
+  duration: 5,
+  next: "overworld",
+
+  update() {},
+  draw() {},
+};
 ```
 
 > [!NOTE]
@@ -1549,47 +1746,39 @@ export const fade = new FadeTransition();
 **File:** `src/features/game-state.ts`
 
 <!-- prettier-ignore -->
-```diff
-+ import IMG_BATTLE_BG_SRC from "@/assets/img/battleBackground.png";
-+
-+ const IMG_BATTLE_BG = new Image();
-+ IMG_BATTLE_BG.src = IMG_BATTLE_BG_SRC;
+```ts
+import IMG_BATTLE_BG_SRC from "@/assets/img/battleBackground.png";
 
-  export const assetsReady = preload([
-    IMG_MAP,
-    IMG_MAP_FG,
-+   IMG_BATTLE_BG,
-    ...Object.values(sprites),
-  ]);
+export const GAME_STATE = {
+  // -- snip --
+  battleBackground: new Sprite({ src: IMG_BATTLE_BG_SRC }), // new
+  // -- snip --
+};
 
-  export const GAME_STATE = {
-    map: new Sprite({ image: IMG_MAP, position: { ...mapOrigin } }),
-    foreground: new Sprite({ image: IMG_MAP_FG, position: { ...mapOrigin } }),
-+   battleBackground: new Sprite({ image: IMG_BATTLE_BG }),
-    player: new Player({ sprites }),
-    boundaries: createBoundaries(mapOrigin),
-    battleZones: createBattleZones(mapOrigin),
-    scene: "overworld" as SceneName,
-  };
+export const assetsReady = preload([
+  GAME_STATE.map.image,
+  GAME_STATE.foreground.image,
+  GAME_STATE.battleBackground.image, // new
+  ...GAME_STATE.player.images,
+]);
 ```
 
 **File:** `src/features/scenes/battle.ts`
 
 <!-- prettier-ignore -->
-```diff
-+ import { GAME_STATE } from "@/features/game-state";
+```ts
+import { GAME_STATE } from "@/features/game-state";
 
-  export const battleScene: Scene = {
-    duration: 5,
-    next: "overworld",
+export const battleScene: Scene = {
+  duration: 5,
+  next: "overworld",
 
-    update() {},
--   draw() {},
-+
-+   draw(ctx) {
-+     GAME_STATE.battleBackground.draw(ctx);
-+   },
-  };
+  update() {},
+
+  draw(ctx) { // new
+    GAME_STATE.battleBackground.draw(ctx);
+  },
+};
 ```
 
 ### Step 30: Tie it together in the game loop
@@ -1597,62 +1786,83 @@ export const fade = new FadeTransition();
 **File:** `src/features/game-state.ts` — one more field, alongside `scene`:
 
 <!-- prettier-ignore -->
-```diff
-  export const GAME_STATE = {
-    // -- snip --
-    scene: "overworld" as SceneName,
-+   sceneElapsed: 0,
-  };
+```ts
+export const GAME_STATE = {
+  // -- snip --
+  sceneName: "overworld" as SceneName,
+  sceneElapsed: 0, // new
+};
 ```
 
-**File:** `src/features/game-engine.ts`
+**File:** `src/features/game-engine.ts` — resolves both scenes' own fade
+values and switches to the new scene:
 
 <!-- prettier-ignore -->
-```diff
-+ import { fade } from "@/lib/fade-transition";
+```ts
+// -- snip -- (SCENES, from Step 25, stays above)
+function enterScene(from: SceneName, to: SceneName) { // new
+  const showDuration = SCENES[from].fadeOut ?? 0;
+  const hideDuration = SCENES[to].fadeIn ?? 0;
+  GAME_STATE.sceneName = to;
+  GAME_STATE.sceneElapsed = 0;
+  FADE.start(showDuration, hideDuration);
+}
+
+export class GameEngine {
+  // -- snip -- (tick() updated below)
+}
+```
+
+`tick()` calls it wherever `GAME_STATE.sceneName` would otherwise just be
+assigned directly — once because a scene changed itself, once because a
+scene's own `duration` ran out:
+
+<!-- prettier-ignore -->
+```ts
+import { FADE } from "@/lib/canvas/fade-transition"; // new
+
+export class GameEngine {
+  // -- snip --
 
   private tick = (time: number) => {
     this.gameLoopId = requestAnimationFrame(this.tick);
     const dt = (time - this.lastTime) / 1000;
     this.lastTime = time;
 
-    const direction = this.controller.keys.pressed.at(-1);
--   const scene = SCENES[GAME_STATE.scene];
-+   const sceneBefore = GAME_STATE.scene;
-+   const scene = SCENES[sceneBefore];
-    scene.update(dt, direction);
--   scene.draw(this.ctx);
-+
-+   // Reset the clock the instant a scene switches, however it happened.
-+   if (GAME_STATE.scene !== sceneBefore) GAME_STATE.sceneElapsed = 0;
-+   else GAME_STATE.sceneElapsed += dt;
-+
-+   const activeScene = SCENES[GAME_STATE.scene];
-+   if (activeScene.duration !== undefined && activeScene.next && GAME_STATE.sceneElapsed >= activeScene.duration) {
-+     GAME_STATE.scene = activeScene.next;
-+     GAME_STATE.sceneElapsed = 0;
-+     fade.start("out");
-+   }
-+
-+   const finishedFading = fade.update(dt);
-+   if (finishedFading && fade.direction === "out") fade.start("in");
-+
-+   const isFadingOut = fade.active && fade.direction === "out";
-+   if (!isFadingOut) scene.draw(this.ctx);
-+
-+   fade.draw(this.ctx);
+    const sceneName = GAME_STATE.sceneName;
+    const scene = SCENES[sceneName];
+    scene.update(dt);
+
+    // new:
+    GAME_STATE.sceneElapsed += dt;
+
+    const sceneChanged = GAME_STATE.sceneName !== sceneName;
+    const sceneExpired = scene.duration !== undefined && GAME_STATE.sceneElapsed >= scene.duration;
+
+    if (sceneChanged) enterScene(sceneName, GAME_STATE.sceneName);
+    else if (sceneExpired) enterScene(sceneName, scene.next);
+
+    FADE.update(dt);
+
+    if (FADE.phase !== "show") scene.draw(this.ctx); // was: scene.draw(this.ctx) unconditionally
+
+    FADE.draw(this.ctx); // new
   };
+
+  // -- snip --
+}
 ```
 
 > [!WARNING]
-> Skip the `isFadingOut` check and the incoming scene's `draw()` starts
-> painting the instant `GAME_STATE.scene` changes — one frame after the
-> trigger, not once the screen is actually covered. Its content bleeds
-> through the still-transparent fade before the swap is hidden.
+> Skip the `FADE.phase !== "show"` check and the incoming scene's `draw()`
+> starts painting the instant `GAME_STATE.sceneName` changes — one frame after
+> the trigger, not once the screen is actually covered. Its content bleeds
+> through the still-transparent overlay before the swap is hidden.
 
 > [!NOTE]
-> Walk into a battle zone — screen fades to black, reveals the battle
-> background, holds five seconds, fades back to the frozen overworld.
+> Walk into a battle zone — overworld fades to black over a second,
+> reveals the battle background instantly, holds five seconds, cuts to
+> black instantly, then fades the overworld back in over a second.
 
 ## Where You Landed
 
@@ -1677,5 +1887,5 @@ Compare your version against the real thing:
 - [`zone.ts`](../src/features/zone.ts) / [`collisions.ts`](../src/features/collisions.ts)
 - [`scene.ts`](../src/features/scene.ts) / [`scenes/overworld.ts`](../src/features/scenes/overworld.ts) / [`scenes/battle.ts`](../src/features/scenes/battle.ts)
 - [`game-state.ts`](../src/features/game-state.ts) / [`game-engine.ts`](../src/features/game-engine.ts)
-- [`fade-transition.ts`](../src/lib/fade-transition.ts) / [`preload.ts`](../src/lib/preload.ts)
+- [`fade-transition.ts`](../src/lib/canvas/fade-transition.ts) / [`preload.ts`](../src/lib/preload.ts)
 - [`layout.tsx`](../src/app/layout.tsx)
