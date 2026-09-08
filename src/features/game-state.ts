@@ -7,6 +7,9 @@ import IMG_PLAYER_LEFT from "@/assets/img/playerLeft.png";
 import IMG_PLAYER_RIGHT from "@/assets/img/playerRight.png";
 import IMG_PLAYER_UP from "@/assets/img/playerUp.png";
 
+import IMG_SPRITE_DRAGGLE from "@/assets/img/draggle-sprite.png";
+import IMG_SPRITE_EMBY from "@/assets/img/emby-sprite.png";
+
 import { createBattleZones, createBoundaries } from "@/features/collisions";
 import type { Direction } from "@/features/controller";
 import type { SceneName } from "@/features/scene";
@@ -37,6 +40,18 @@ export const GAME_STATE = {
   sceneName: "overworld" as SceneName,
   /** Seconds the current scene has been active — used by scenes with a `duration`. */
   sceneElapsed: 0,
+  sprites: {
+    draggle: new Sprite({
+      src: IMG_SPRITE_DRAGGLE,
+      position: { x: 800, y: 100 },
+      frames: { max: 4 },
+    }),
+    emby: new Sprite({
+      src: IMG_SPRITE_EMBY,
+      position: { x: 280, y: 325 },
+      frames: { max: 4 },
+    }),
+  },
 };
 
 const { background, foreground, battleBackground, player } = GAME_STATE;
