@@ -1809,9 +1809,22 @@ function enterScene(from: SceneName, to: SceneName) { // new
 }
 
 export class GameEngine {
+  // -- snip --
+  private lastSceneName: SceneName = GAME_STATE.sceneName; // new
+
   // -- snip -- (tick() updated below)
 }
 ```
+
+> [!WARNING]
+> `lastSceneName` must be a field that survives across ticks — not a local
+> variable re-captured fresh at the top of `tick()` each frame. A scene can
+> also change from _outside_ the game loop entirely (e.g. a button in React),
+> between two animation frames. A per-tick local always equals whatever's
+> current the instant that tick starts, so it can never see a change that
+> already happened before the tick began. A persisted field still holds the
+> _old_ value going into the next tick, which is what lets the comparison
+> below actually catch it.
 
 `tick()` calls it wherever `GAME_STATE.sceneName` would otherwise just be
 assigned directly — once because a scene changed itself, once because a
@@ -1829,18 +1842,19 @@ export class GameEngine {
     const dt = (time - this.lastTime) / 1000;
     this.lastTime = time;
 
-    const sceneName = GAME_STATE.sceneName;
-    const scene = SCENES[sceneName];
+    const scene = SCENES[GAME_STATE.sceneName]; // was: const sceneName = GAME_STATE.sceneName; const scene = SCENES[sceneName];
     scene.update(dt);
 
     // new:
     GAME_STATE.sceneElapsed += dt;
 
-    const sceneChanged = GAME_STATE.sceneName !== sceneName;
+    const sceneChanged = GAME_STATE.sceneName !== this.lastSceneName; // was: !== sceneName
     const sceneExpired = scene.duration !== undefined && GAME_STATE.sceneElapsed >= scene.duration;
 
-    if (sceneChanged) enterScene(sceneName, GAME_STATE.sceneName);
-    else if (sceneExpired) enterScene(sceneName, scene.next);
+    if (sceneChanged) enterScene(this.lastSceneName, GAME_STATE.sceneName); // was: enterScene(sceneName, ...)
+    else if (sceneExpired) enterScene(this.lastSceneName, scene.next); // was: enterScene(sceneName, ...)
+
+    this.lastSceneName = GAME_STATE.sceneName; // new
 
     FADE.update(dt);
 

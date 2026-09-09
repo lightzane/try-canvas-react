@@ -34,6 +34,7 @@ export class GameEngine {
    * time-based instead of frame-rate
    */
   private lastTime = performance.now();
+  private lastSceneName: SceneName = GAME_STATE.sceneName;
   private cancelled = false;
 
   constructor(canvas: HTMLCanvasElement) {
@@ -92,17 +93,18 @@ export class GameEngine {
     const dt = (time - this.lastTime) / 1000; // delta time in seconds
     this.lastTime = time;
 
-    const sceneName = GAME_STATE.sceneName;
-    const scene = SCENES[sceneName];
+    const scene = SCENES[GAME_STATE.sceneName];
     scene.on = this.on;
     scene.update(dt);
     GAME_STATE.sceneElapsed += dt;
 
-    const sceneChanged = GAME_STATE.sceneName !== sceneName;
+    const sceneChanged = GAME_STATE.sceneName !== this.lastSceneName;
     const sceneExpired = scene.duration !== undefined && GAME_STATE.sceneElapsed >= scene.duration;
 
-    if (sceneChanged) enterScene(sceneName, GAME_STATE.sceneName);
-    else if (sceneExpired) enterScene(sceneName, scene.next);
+    if (sceneChanged) enterScene(this.lastSceneName, GAME_STATE.sceneName);
+    else if (sceneExpired) enterScene(this.lastSceneName, scene.next!);
+
+    this.lastSceneName = GAME_STATE.sceneName;
 
     FADE.update(dt);
     DIALOGUE.update(dt);
