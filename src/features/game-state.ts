@@ -14,6 +14,7 @@ import { createBattleZones, createBoundaries } from "@/features/collisions";
 import type { Direction } from "@/features/controller";
 import type { SceneName } from "@/features/scene";
 import { Sprite } from "@/features/sprite";
+import { BattleSprite } from "@/features/sprite-battle";
 import { Player } from "@/features/sprite-player";
 import { getMapPosCenterTile } from "@/lib/positioning";
 import { preload } from "@/lib/preload";
@@ -42,15 +43,15 @@ export const GAME_STATE = {
   /** Seconds the current scene has been active — used by scenes with a `duration`. */
   sceneElapsed: 0,
   sprites: {
-    draggle: new Sprite({
+    draggle: new BattleSprite({
+      name: "Draggle",
       src: IMG_SPRITE_DRAGGLE,
       position: { x: 800, y: 100 },
-      frames: { max: 4 },
     }),
-    emby: new Sprite({
+    emby: new BattleSprite({
+      name: "Emby",
       src: IMG_SPRITE_EMBY,
       position: { x: 280, y: 325 },
-      frames: { max: 4 },
     }),
   },
 };

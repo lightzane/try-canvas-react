@@ -34,6 +34,7 @@ export class Sprite {
   image: HTMLImageElement;
   position: NonNullable<SpriteProps["position"]>;
   frames: Required<NonNullable<SpriteProps["frames"]>>;
+  opacity = 1;
 
   constructor({ src, position = { x: 0, y: 0 }, frames = { max: 1 } }: SpriteProps) {
     this.image = loadImage(src);
@@ -67,6 +68,7 @@ export class Sprite {
     // With Sprite frames
     const sx = this.frames.val * this.width;
 
+    ctx.globalAlpha = this.opacity;
     ctx.drawImage(
       this.image,
       // (source) crop here
