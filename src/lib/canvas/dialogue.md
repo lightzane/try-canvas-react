@@ -77,6 +77,21 @@ if (DIALOGUE.isActive) return; // e.g. skip movement/menu input while text is up
 `isActive` is `true` from the moment `.show()` is called until the last page
 closes.
 
+## Running something after the conversation ends
+
+```ts
+DIALOGUE.show("Enemy fainted!");
+DIALOGUE.onComplete = () => {
+  GAME_STATE.sceneName = "overworld";
+};
+```
+
+`onComplete` fires once, exactly when the _whole_ conversation finishes (the
+last page of the last queued message closes) — not after each individual
+`.show()`/`.queue()` message. Every `.show()` resets it to a no-op first, so
+set it _after_ `.show()`, and a stale callback from a previous, unrelated
+conversation can never accidentally fire.
+
 ## Example: showing dialogue on scene entry
 
 ```ts

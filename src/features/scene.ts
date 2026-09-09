@@ -1,6 +1,8 @@
 export type SceneName = "overworld" | "battle";
 
-export type SceneEvent = { type: "hud:visible"; visible: boolean };
+export type SceneEvent =
+  | { type: "hud:life.visible"; visible: boolean }
+  | { type: "hud:actions.visible"; visible: boolean };
 
 interface SceneBase {
   update(dt: number): void;

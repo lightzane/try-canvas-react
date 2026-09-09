@@ -37,6 +37,8 @@ class Dialogue {
   private revealedChars = 0;
   private wasHeld = false;
   private blinkElapsed = 0;
+  /** Overwrite this to be notified once the whole conversation finishes (e.g. `DIALOGUE.onComplete = () => {...}`). Reset to a no-op by every `show()`. */
+  onComplete: () => void = () => {};
 
   get isActive() {
     return this.pages.length > 0 || this.pending.length > 0;
@@ -47,6 +49,7 @@ class Dialogue {
     this.pending = [];
     this.pages = [];
     this.needsWrap = false;
+    this.onComplete = () => {};
     this.enqueue(input);
   }
 
@@ -72,7 +75,10 @@ class Dialogue {
     if (this.pageIndex < this.pages.length) return;
 
     if (this.pending.length > 0) this.needsWrap = true;
-    else this.pages = [];
+    else {
+      this.pages = [];
+      this.onComplete();
+    }
   }
 
   update(dt: number) {

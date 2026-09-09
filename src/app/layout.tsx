@@ -1,11 +1,7 @@
 import { GameEngine } from "@/features/game-engine";
 import { GAME_STATE } from "@/features/game-state";
-import type { BattleSprite } from "@/features/sprite-battle";
+import { onBattleSpriteChange, type BattleSprite } from "@/features/sprite-battle";
 import { useEffect, useReducer, useRef, useState } from "react";
-
-// TEMP: no real HP tracking yet — these are just visual placeholders
-const ENEMY = GAME_STATE.sprites.draggle;
-const ALLY = GAME_STATE.sprites.emby;
 
 function InfoCard({ pokemon }: { pokemon: BattleSprite }) {
   return (
@@ -15,12 +11,12 @@ function InfoCard({ pokemon }: { pokemon: BattleSprite }) {
         <span>Lv5</span>
       </div>
       <div className="flex items-center gap-2">
-        <span className="rounded-full bg-orange-400 px-2 py-0.5 text-xs font-bold text-white">
+        <span className="rounded-full bg-gray-400 px-2 py-0.5 text-xs font-bold text-white">
           HP
         </span>
         <div className="h-3.5 w-xs overflow-hidden rounded-full border-2 border-green-950 bg-gray-300">
           <div
-            className={`h-full rounded-full transition-all duration-700 ${
+            className={`h-full rounded-full transition-all duration-500 ${
               pokemon.health > 50
                 ? "bg-green-500"
                 : pokemon.health > 20
@@ -37,15 +33,14 @@ function InfoCard({ pokemon }: { pokemon: BattleSprite }) {
 
 export default function Layout() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
-  const [showHud, setShowHud] = useState(false);
+  const [showHudLife, setShowHudLife] = useState(false);
+  const [showHudActions, setShowHudActions] = useState(false);
   // GAME_STATE.sprites are plain mutable objects — React can't see .health
-  // change on its own, so each sprite notifies us via onChange when it does.
+  // change on its own, so we subscribe to the shared channel every
+  // BattleSprite notifies through, regardless of which ones exist.
   const [, forceUpdate] = useReducer((n: number) => n + 1, 0);
 
-  useEffect(() => {
-    GAME_STATE.sprites.draggle.onChange = forceUpdate;
-    GAME_STATE.sprites.emby.onChange = forceUpdate;
-  }, []);
+  useEffect(() => onBattleSpriteChange(forceUpdate), []);
 
   useEffect(() => {
     if (!canvasRef.current) return;
@@ -53,7 +48,8 @@ export default function Layout() {
     const game = new GameEngine(canvasRef.current);
 
     game.on = (event) => {
-      if (event.type === "hud:visible") setShowHud(event.visible);
+      if (event.type === "hud:life.visible") setShowHudLife(event.visible);
+      if (event.type === "hud:actions.visible") setShowHudActions(event.visible);
     };
 
     game.start();
@@ -68,23 +64,28 @@ export default function Layout() {
       <div className="relative">
         <canvas ref={canvasRef}></canvas>
 
-        {showHud && (
+        {showHudLife && (
           <>
             {/* enemy — top-left, near its own sprite */}
             <div className="absolute top-[10%] left-[8%]">
-              <InfoCard pokemon={ENEMY} />
+              <InfoCard pokemon={GAME_STATE.sprites.draggle} />
             </div>
 
             {/* ally — right side, mid-height, near its own sprite (not mirrored at the top) */}
             <div className="absolute top-[65%] right-3/100 -translate-y-1/2">
-              <InfoCard pokemon={ALLY} />
+              <InfoCard pokemon={GAME_STATE.sprites.emby} />
             </div>
+          </>
+        )}
 
+        {showHudActions && (
+          <>
             {/* move selection */}
             <div className="absolute inset-x-4 bottom-4 grid grid-cols-2 gap-3 rounded-xl border-4 border-green-900 bg-[#f8f0d8] p-4 font-game text-green-950 shadow-[4px_4px_0_rgba(0,0,0,0.25)]">
               <button
                 onClick={() => {
                   GAME_STATE.sprites.emby.attack({
+                    name: "tackle",
                     receipient: GAME_STATE.sprites.draggle,
                   });
                 }}
@@ -93,14 +94,23 @@ export default function Layout() {
                 <span className="mr-2 w-4 opacity-0 group-hover:opacity-100">▶</span>
                 TACKLE
               </button>
-              <button className="group flex items-center py-1.5 text-left text-xl hover:text-green-700">
+              <button
+                onClick={() => {
+                  GAME_STATE.sprites.emby.attack({
+                    name: "ember",
+                    receipient: GAME_STATE.sprites.draggle,
+                  });
+                }}
+                className="group flex items-center py-1.5 text-left text-xl hover:text-green-700"
+              >
                 <span className="mr-2 w-4 opacity-0 group-hover:opacity-100">▶</span>
-                FIREBALL
+                EMBER
               </button>
               <button
                 onClick={() => {
                   GAME_STATE.sceneName = "overworld";
-                  setShowHud(false);
+                  setShowHudLife(false);
+                  setShowHudActions(false);
                 }}
                 className="group col-span-2 flex items-center py-1.5 text-left text-xl hover:text-green-700"
               >

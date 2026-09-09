@@ -1,6 +1,7 @@
 import { getOverlapArea, isColliding, type Rect } from "@/features/collisions";
 import { GAME_STATE } from "@/features/game-state";
 import type { Scene } from "@/features/scene";
+import { BattleSprite } from "@/features/sprite-battle";
 
 export const overworldScene: Scene = {
   fadeIn: 1,
@@ -70,6 +71,13 @@ function overlapBattleZones(playerBox: Rect) {
   const offset = playerArea / 2;
   const isOverlap = GAME_STATE.battleZones.some((b) => getOverlapArea(playerBox, b) > offset);
 
-  const battleChance = Math.random() < 0.01;
-  if (isOverlap && battleChance) GAME_STATE.sceneName = "battle";
+  const battleChance = Math.random() < 0.02;
+  if (isOverlap && battleChance) {
+    GAME_STATE.battleComplete = false;
+
+    const { name, image, position } = GAME_STATE.sprites.draggle;
+    GAME_STATE.sprites.draggle = new BattleSprite({ name, src: image.src, position });
+
+    GAME_STATE.sceneName = "battle";
+  }
 }

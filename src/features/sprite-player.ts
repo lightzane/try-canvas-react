@@ -1,5 +1,6 @@
 import type { Direction } from "@/features/controller";
-import { loadImage, Sprite } from "@/features/sprite";
+import { Sprite } from "@/features/sprite";
+import { loadImage } from "@/lib/load-image";
 
 interface PlayerProps {
   position?: { x: number; y: number };

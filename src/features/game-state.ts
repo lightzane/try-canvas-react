@@ -9,6 +9,7 @@ import IMG_PLAYER_UP from "@/assets/img/playerUp.png";
 
 import IMG_SPRITE_DRAGGLE from "@/assets/img/draggle-sprite.png";
 import IMG_SPRITE_EMBY from "@/assets/img/emby-sprite.png";
+import IMG_FX_EMBER from "@/assets/img/fireball.png";
 
 import { createBattleZones, createBoundaries } from "@/features/collisions";
 import type { Direction } from "@/features/controller";
@@ -16,6 +17,7 @@ import type { SceneName } from "@/features/scene";
 import { Sprite } from "@/features/sprite";
 import { BattleSprite } from "@/features/sprite-battle";
 import { Player } from "@/features/sprite-player";
+import { loadImage } from "@/lib/load-image";
 import { getMapPosCenterTile } from "@/lib/positioning";
 import { preload } from "@/lib/preload";
 
@@ -54,6 +56,11 @@ export const GAME_STATE = {
       position: { x: 280, y: 325 },
     }),
   },
+  battleComplete: false,
+  fx: [] as Sprite[],
+  assets: {
+    imgFxEmber: IMG_FX_EMBER,
+  },
 };
 
 const { background, foreground, battleBackground, player } = GAME_STATE;
@@ -64,3 +71,6 @@ export const assetsReady = preload([
   battleBackground.image,
   ...player.images,
 ]);
+
+// Other assets to preload
+loadImage(IMG_FX_EMBER);

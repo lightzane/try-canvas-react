@@ -165,21 +165,38 @@ timing, so `IMG_MAP.onload` isn't needed anymore:
 
 ### Step 4: Generalize "draw an image at a position"
 
+**File:** `src/lib/load-image.ts` — a general-purpose utility, not specific to
+`Sprite`, so it doesn't live inside `sprite.ts`:
+
+<!-- prettier-ignore -->
+```ts
+const imageCache = new Map<string, HTMLImageElement>();
+
+// same src always returns the same HTMLImageElement — multiple sprites
+// sharing one image (e.g. several identical enemies) share one fetch/decode
+// instead of each paying for its own
+export function loadImage(src: string): HTMLImageElement {
+  const cached = imageCache.get(src);
+  if (cached) return cached;
+
+  const image = new Image();
+  image.src = src;
+  imageCache.set(src, image);
+  return image;
+}
+```
+
 **File:** `src/features/sprite.ts`
 
 <!-- prettier-ignore -->
 ```ts
+import { loadImage } from "@/lib/load-image";
+
 export type Position = { x: number; y: number }; // reused everywhere something needs an x/y
 
 interface SpriteProps {
   src: string; // the <img> source — Sprite loads it, callers never touch Image directly
   position?: Position;
-}
-
-export function loadImage(src: string): HTMLImageElement {
-  const image = new Image();
-  image.src = src;
-  return image;
 }
 
 export class Sprite {
@@ -201,6 +218,16 @@ export class Sprite {
 > A source string in, a loaded `Image` out — every future sprite (map,
 > player, foreground, battle background) is created from a plain import,
 > never a manual `new Image()`.
+
+> [!TIP]
+> The cache matters most once several `Sprite`s share the same image — e.g.
+> a wave of identical enemies. Without it, each one calls `new Image()` and
+> decodes the same bitmap independently: same network bytes (browsers cache
+> those), but a separate decode and a separate copy in memory per sprite.
+> With the cache, the second (and hundredth) `loadImage("emby.png")` just
+> returns the _same_ `HTMLImageElement` — one decode, one bitmap, shared by
+> every sprite using it. `ctx.drawImage()` has no problem painting the same
+> source image at many different positions.
 
 ### Step 5: Add the player as a second sprite
 
@@ -690,8 +717,9 @@ Only the player needs 4 direction sheets — doesn't belong on `Sprite`
 <!-- prettier-ignore -->
 ```ts
 import type { Direction } from "@/features/controller";
-import { loadImage, Sprite } from "@/features/sprite";
+import { Sprite } from "@/features/sprite";
 import type { Position } from "@/features/sprite";
+import { loadImage } from "@/lib/load-image";
 
 interface PlayerProps {
   position?: Position;
@@ -1901,5 +1929,5 @@ Compare your version against the real thing:
 - [`zone.ts`](../src/features/zone.ts) / [`collisions.ts`](../src/features/collisions.ts)
 - [`scene.ts`](../src/features/scene.ts) / [`scenes/overworld.ts`](../src/features/scenes/overworld.ts) / [`scenes/battle.ts`](../src/features/scenes/battle.ts)
 - [`game-state.ts`](../src/features/game-state.ts) / [`game-engine.ts`](../src/features/game-engine.ts)
-- [`fade-transition.ts`](../src/lib/canvas/fade-transition.ts) / [`preload.ts`](../src/lib/preload.ts)
+- [`fade-transition.ts`](../src/lib/canvas/fade-transition.ts) / [`preload.ts`](../src/lib/preload.ts) / [`load-image.ts`](../src/lib/load-image.ts)
 - [`layout.tsx`](../src/app/layout.tsx)

@@ -1,3 +1,5 @@
+import { loadImage } from "@/lib/load-image";
+
 export type Position = { x: number; y: number };
 
 interface SpriteProps {
@@ -5,12 +7,6 @@ interface SpriteProps {
   src: string;
   position?: Position;
   frames?: SpriteFrames;
-}
-
-export function loadImage(src: string): HTMLImageElement {
-  const image = new Image();
-  image.src = src;
-  return image;
 }
 
 interface SpriteFrames {
