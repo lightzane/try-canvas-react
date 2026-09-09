@@ -6,3 +6,7 @@
     'cv04', /* Open nine */
     'cv11'; /* Single-story a */
 }
+
+@theme inline {
+  --font-game: "Oxanium", system-ui;
+}

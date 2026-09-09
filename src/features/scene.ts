@@ -1,5 +1,7 @@
 export type SceneName = "overworld" | "battle";
 
+export type SceneEvent = { type: "hud:visible"; visible: boolean };
+
 interface SceneBase {
   update(dt: number): void;
   draw(ctx: CanvasRenderingContext2D): void;
@@ -7,6 +9,8 @@ interface SceneBase {
   fadeIn?: number;
   /** This scene's own exit duration, in seconds; unset = instant. */
   fadeOut?: number;
+  /** Set by `GameEngine` each frame — call this to notify outside listeners (e.g. React). */
+  on?: (event: SceneEvent) => void;
 }
 
 /** `duration` and `next` are a pair — set both to auto-transition, or neither. */

@@ -36,6 +36,7 @@ export const GAME_STATE = {
   battleZones: createBattleZones(structuredClone(mapOrigin)),
   keys: {
     pressed: [] as Direction[],
+    actions: { z: false, x: false },
   },
   sceneName: "overworld" as SceneName,
   /** Seconds the current scene has been active — used by scenes with a `duration`. */

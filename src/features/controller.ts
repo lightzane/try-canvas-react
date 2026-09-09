@@ -1,6 +1,7 @@
 import { GAME_STATE } from "@/features/game-state";
 
 export type Direction = "w" | "a" | "s" | "d";
+export type ActionKey = "z" | "x";
 
 // prettier-ignore
 const KEY_TO_DIRECTION: Record<string, Direction> = {
@@ -9,6 +10,8 @@ const KEY_TO_DIRECTION: Record<string, Direction> = {
   s: "s", ArrowDown: "s",
   d: "d", ArrowRight: "d",
 };
+
+const KEY_TO_ACTION: Record<string, ActionKey> = { z: "z", x: "x", " ": "z" };
 
 export class Controller {
   private readonly keys: (typeof GAME_STATE)["keys"];
@@ -22,26 +25,39 @@ export class Controller {
 
   keydown(e: KeyboardEvent) {
     const direction = KEY_TO_DIRECTION[e.key];
-    if (!direction) return;
+    if (direction) {
+      const pressed = this.keys.pressed;
+      const existing = pressed.indexOf(direction);
+      if (existing !== -1) pressed.splice(existing, 1);
 
-    const pressed = this.keys.pressed;
-    const existing = pressed.indexOf(direction);
-    if (existing !== -1) pressed.splice(existing, 1);
+      pressed.push(direction); // most recent
+      return;
+    }
 
-    pressed.push(direction); // most recent
+    const action = KEY_TO_ACTION[e.key];
+    if (action) {
+      if (e.key === " ") e.preventDefault(); // stop the browser from scrolling the page
+      this.keys.actions[action] = true;
+    }
   }
 
   keyup(e: KeyboardEvent) {
     const direction = KEY_TO_DIRECTION[e.key];
-    if (!direction) return;
+    if (direction) {
+      const pressed = this.keys.pressed;
+      const existing = pressed.indexOf(direction);
+      if (existing !== -1) pressed.splice(existing, 1);
+      return;
+    }
 
-    const pressed = this.keys.pressed;
-    const existing = pressed.indexOf(direction);
-    if (existing !== -1) pressed.splice(existing, 1);
+    const action = KEY_TO_ACTION[e.key];
+    if (action) this.keys.actions[action] = false;
   }
 
   blur() {
     if (!this.keys) return;
     this.keys.pressed.length = 0;
+    this.keys.actions.z = false;
+    this.keys.actions.x = false;
   }
 }

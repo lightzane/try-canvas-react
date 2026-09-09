@@ -1,9 +1,10 @@
 import { CANVAS_HEIGHT, CANVAS_WIDTH } from "@/constants/game-settings";
 import { Controller } from "@/features/controller";
 import { assetsReady, GAME_STATE } from "@/features/game-state";
-import type { Scene, SceneName } from "@/features/scene";
+import type { Scene, SceneEvent, SceneName } from "@/features/scene";
 import { battleScene } from "@/features/scenes/battle";
 import { overworldScene } from "@/features/scenes/overworld";
+import { DIALOGUE, dialogueFontReady } from "@/lib/canvas/dialogue";
 import { FADE } from "@/lib/canvas/fade-transition";
 
 const SCENES: Record<SceneName, Scene> = {
@@ -20,6 +21,9 @@ function enterScene(from: SceneName, to: SceneName) {
 }
 
 export class GameEngine {
+  /** Overwrite this to listen for scene-emitted events (e.g. `game.on = (event) => {...}`). */
+  on: (event: SceneEvent) => void = () => {};
+
   private ctx: CanvasRenderingContext2D;
   /** The game controls input by user */
   private controller: Controller;
@@ -64,7 +68,7 @@ export class GameEngine {
     window.addEventListener("keyup", this.controller.keyup);
     window.addEventListener("blur", this.controller.blur);
 
-    assetsReady
+    Promise.all([assetsReady, dialogueFontReady])
       .then(() => {
         if (this.cancelled) return;
         this.gameLoopId = requestAnimationFrame(this.tick);
@@ -90,6 +94,7 @@ export class GameEngine {
 
     const sceneName = GAME_STATE.sceneName;
     const scene = SCENES[sceneName];
+    scene.on = this.on;
     scene.update(dt);
     GAME_STATE.sceneElapsed += dt;
 
@@ -100,12 +105,16 @@ export class GameEngine {
     else if (sceneExpired) enterScene(sceneName, scene.next);
 
     FADE.update(dt);
+    DIALOGUE.update(dt);
 
     // Skip drawing while still showing the overlay — otherwise whatever this
     // scene draws bleeds through the still-transparent overlay before the
     // swap is actually hidden. The canvas just keeps the last painted
     // (frozen) frame in the meantime, since nothing draws over it.
-    if (FADE.phase !== "show") scene.draw(this.ctx);
+    if (FADE.phase !== "show") {
+      scene.draw(this.ctx);
+      DIALOGUE.draw(this.ctx);
+    }
 
     FADE.draw(this.ctx);
 
