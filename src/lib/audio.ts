@@ -3,7 +3,7 @@ import { Howl } from "howler";
 // Files live in public/audio/ (not src/assets/) so they're addressable by plain
 // path here — same convention as ../fanorona-lite's sound.composable.ts — rather
 // than one import per file. Resolves correctly under any Vite `base` config too.
-const base = import.meta.env.BASE_URL.replace(/\/$/, "/audio/");
+const base = import.meta.env.BASE_URL.replace(/\/$/, "/assets/audio/");
 
 export type SoundKey = "tackle" | "ember" | "battle-start";
 export type MusicKey = "map" | "battle";

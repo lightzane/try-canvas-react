@@ -1,16 +1,3 @@
-import IMG_BATTLE_BG_SRC from "@/assets/img/battleBackground.png";
-import IMG_MAP_FG_SRC from "@/assets/img/pallet-town-foreground.png";
-import IMG_MAP_BG_SRC from "@/assets/img/pallet-town.png";
-
-import IMG_PLAYER_DOWN from "@/assets/img/playerDown.png";
-import IMG_PLAYER_LEFT from "@/assets/img/playerLeft.png";
-import IMG_PLAYER_RIGHT from "@/assets/img/playerRight.png";
-import IMG_PLAYER_UP from "@/assets/img/playerUp.png";
-
-import IMG_SPRITE_DRAGGLE from "@/assets/img/draggle-sprite.png";
-import IMG_SPRITE_EMBY from "@/assets/img/emby-sprite.png";
-import IMG_FX_EMBER from "@/assets/img/fireball.png";
-
 import { createBattleZones, createBoundaries } from "@/features/collisions";
 import type { Direction } from "@/features/controller";
 import type { SceneName } from "@/features/scene";
@@ -20,6 +7,24 @@ import { Player } from "@/features/sprite-player";
 import { loadImage } from "@/lib/load-image";
 import { getMapPosCenterTile } from "@/lib/positioning";
 import { preload } from "@/lib/preload";
+
+// Files live in public/assets/images/ so they're addressable by plain filename
+// here, same convention as src/lib/audio.ts — no import per file.
+const imgBase = import.meta.env.BASE_URL.replace(/\/$/, "/assets/images/");
+const img = (name: string) => `${imgBase}${name}`;
+
+const IMG_BATTLE_BG_SRC = img("battleBackground.png");
+const IMG_MAP_FG_SRC = img("pallet-town-foreground.png");
+const IMG_MAP_BG_SRC = img("pallet-town.png");
+
+const IMG_PLAYER_DOWN = img("playerDown.png");
+const IMG_PLAYER_LEFT = img("playerLeft.png");
+const IMG_PLAYER_RIGHT = img("playerRight.png");
+const IMG_PLAYER_UP = img("playerUp.png");
+
+const IMG_SPRITE_DRAGGLE = img("draggle-sprite.png");
+const IMG_SPRITE_EMBY = img("emby-sprite.png");
+const IMG_FX_EMBER = img("fireball.png");
 
 const IMGS_PLAYER_SRC: Record<Direction, string> = {
   w: IMG_PLAYER_UP,
