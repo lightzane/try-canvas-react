@@ -1,5 +1,6 @@
 import { GAME_STATE } from "@/features/game-state";
 import { Sprite } from "@/features/sprite";
+import { playSound } from "@/lib/audio";
 import gsap from "gsap";
 
 interface BattleSpriteProps {
@@ -85,6 +86,8 @@ export class BattleSprite extends Sprite {
       });
 
     function receive() {
+      playSound("tackle");
+
       gsap.to(receipient.position, {
         x: receipient.position.x + 10,
         yoyo: true,
@@ -102,6 +105,8 @@ export class BattleSprite extends Sprite {
   }
 
   private ember(receipient: BattleSprite) {
+    playSound("ember");
+
     const FLAME_COUNT = 3;
     const FLAME_SPACING = 50;
     const middleIndex = (FLAME_COUNT - 1) / 2;

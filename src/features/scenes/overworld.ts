@@ -2,12 +2,15 @@ import { getOverlapArea, isColliding, type Rect } from "@/features/collisions";
 import { GAME_STATE } from "@/features/game-state";
 import type { Scene } from "@/features/scene";
 import { BattleSprite } from "@/features/sprite-battle";
+import { pauseMusic, playMusic, playSound } from "@/lib/audio";
 
 export const overworldScene: Scene = {
   fadeIn: 1,
   fadeOut: 1,
 
   update(dt) {
+    if (GAME_STATE.sceneElapsed === 0) playMusic("map");
+
     const direction = GAME_STATE.keys.pressed.at(-1);
     if (direction) GAME_STATE.player.face(direction);
     else GAME_STATE.player.frames.val = 0; // standing position
@@ -77,7 +80,8 @@ function overlapBattleZones(playerBox: Rect) {
 
     const { name, image, position } = GAME_STATE.sprites.draggle;
     GAME_STATE.sprites.draggle = new BattleSprite({ name, src: image.src, position });
-
     GAME_STATE.sceneName = "battle";
+    pauseMusic(); // optional, but we want to highlight the sound of "battle-start"
+    playSound("battle-start");
   }
 }

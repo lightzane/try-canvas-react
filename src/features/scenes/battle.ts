@@ -1,16 +1,16 @@
 import { GAME_STATE } from "@/features/game-state";
 import type { Scene } from "@/features/scene";
+import { playMusic } from "@/lib/audio";
 import { DIALOGUE } from "@/lib/canvas/dialogue";
+import { Cues } from "@/lib/cues";
 
 let introduction = true;
 let battleCompleteHandled = false;
 
-export const battleScene: Scene = {
-  // duration: 5, // demo only — leaves battle automatically
-  // next: "overworld",
-
-  update(_dt) {
-    if (GAME_STATE.sceneElapsed === 0) {
+const cues = new Cues([
+  {
+    at: 0,
+    run: () => {
       DIALOGUE.show("A wild Pokémon appeared!");
 
       if (introduction) {
@@ -28,9 +28,21 @@ export const battleScene: Scene = {
       }
 
       DIALOGUE.onComplete = () => {
-        this.on?.({ type: "hud:life.visible", visible: true });
-        this.on?.({ type: "hud:actions.visible", visible: true });
+        battleScene.on?.({ type: "hud:life.visible", visible: true });
+        battleScene.on?.({ type: "hud:actions.visible", visible: true });
       };
+    },
+  },
+  { at: 1, run: () => playMusic("battle", { volume: 0.5, seek: 0 }) },
+]);
+
+export const battleScene: Scene = {
+  // duration: 5, // demo only — leaves battle automatically
+  // next: "overworld",
+
+  update(_dt) {
+    if (GAME_STATE.sceneElapsed === 0) {
+      cues.start();
       battleCompleteHandled = false;
     }
 
