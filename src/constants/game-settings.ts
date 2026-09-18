@@ -9,3 +9,7 @@ export const TILE_SIZE = 48;
 // aspect ratio = 16:9
 export const CANVAS_WIDTH = 1024;
 export const CANVAS_HEIGHT = 576;
+export const CANVAS_CENTER = {
+  x: CANVAS_WIDTH / 2,
+  y: CANVAS_HEIGHT / 2,
+};

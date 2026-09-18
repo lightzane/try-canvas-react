@@ -22,10 +22,15 @@ export const overworldScene: Scene = {
     // movement 200px/sec — multiply with delta time
     const distance = GAME_STATE.player.moveSpeed * dt;
 
-    if (direction === "w") attemptMove(0, distance);
-    else if (direction === "a") attemptMove(distance, 0);
-    else if (direction === "s") attemptMove(0, -distance);
-    else if (direction === "d") attemptMove(-distance, 0);
+    if (direction === "w") attemptMove(0, -distance);
+    else if (direction === "a") attemptMove(-distance, 0);
+    else if (direction === "s") attemptMove(0, distance);
+    else if (direction === "d") attemptMove(distance, 0);
+
+    const player = GAME_STATE.player;
+    const playerCenter = { x: player.width / 2, y: player.height / 2 };
+    GAME_STATE.camera.x = player.position.x + playerCenter.x;
+    GAME_STATE.camera.y = player.position.y + playerCenter.y;
   },
 
   draw(ctx) {
@@ -37,28 +42,14 @@ export const overworldScene: Scene = {
   },
 };
 
-function move(dx: number, dy: number) {
-  GAME_STATE.background.position.x += dx;
-  GAME_STATE.background.position.y += dy;
-  GAME_STATE.foreground.position.x += dx;
-  GAME_STATE.foreground.position.y += dy;
-  [GAME_STATE.boundaries, GAME_STATE.battleZones] //
-    .flat()
-    .forEach((b) => {
-      b.position.x += dx;
-      b.position.y += dy;
-    });
-}
-
 function attemptMove(dx: number, dy: number) {
   const { position, width, height } = GAME_STATE.player;
   const playerBox: Rect = {
     width,
     height,
     position: {
-      // the player is visually fixed, so test with inversed delta
-      x: position.x + -dx,
-      y: position.y + -dy,
+      x: position.x + dx,
+      y: position.y + dy,
     },
   };
 
@@ -66,7 +57,7 @@ function attemptMove(dx: number, dy: number) {
   overlapBattleZones(playerBox);
 
   const blocked = GAME_STATE.boundaries.some((b) => isColliding(playerBox, b));
-  if (!blocked) move(dx, dy);
+  if (!blocked) GAME_STATE.player.position = playerBox.position;
 }
 
 function overlapBattleZones(playerBox: Rect) {

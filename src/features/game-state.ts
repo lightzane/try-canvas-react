@@ -5,7 +5,6 @@ import { Sprite } from "@/features/sprite";
 import { BattleSprite } from "@/features/sprite-battle";
 import { Player } from "@/features/sprite-player";
 import { loadImage } from "@/lib/load-image";
-import { getMapPosCenterTile } from "@/lib/positioning";
 import { preload } from "@/lib/preload";
 
 // Files live in public/assets/images/ so they're addressable by plain filename
@@ -33,9 +32,10 @@ const IMGS_PLAYER_SRC: Record<Direction, string> = {
   d: IMG_PLAYER_RIGHT,
 };
 
-const mapOrigin = getMapPosCenterTile([25, 20]);
+const mapOrigin = { x: 0, y: 0 };
 
 export const GAME_STATE = {
+  camera: { x: 0, y: 0 },
   background: new Sprite({ src: IMG_MAP_BG_SRC, position: structuredClone(mapOrigin) }),
   foreground: new Sprite({ src: IMG_MAP_FG_SRC, position: structuredClone(mapOrigin) }),
   battleBackground: new Sprite({ src: IMG_BATTLE_BG_SRC }),

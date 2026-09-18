@@ -6,6 +6,7 @@ import { battleScene } from "@/features/scenes/battle";
 import { overworldScene } from "@/features/scenes/overworld";
 import { DIALOGUE, dialogueFontReady } from "@/lib/canvas/dialogue";
 import { FADE } from "@/lib/canvas/fade-transition";
+import { getPosSpawnTile } from "@/lib/positioning";
 
 const SCENES: Record<SceneName, Scene> = {
   overworld: overworldScene,
@@ -48,18 +49,12 @@ export class GameEngine {
     if (!ctx) throw new Error("2D context not supported");
     this.ctx = ctx;
 
-    // Spawn player at a specific tile
-    // GAME_STATE.player.position = getPosSpawnTile({
-    //   tile: [25, 20],
-    //   spriteSize: GAME_STATE.player.size,
-    //   origin: GAME_STATE.background.position,
-    // });
-
-    // Spawn player at center of canvas
-    GAME_STATE.player.position = {
-      x: CANVAS_WIDTH / 2 - GAME_STATE.player.width / 2,
-      y: CANVAS_HEIGHT / 2 - GAME_STATE.player.height / 2,
-    };
+    // Spawn player at a specific tile (world position)
+    GAME_STATE.player.position = getPosSpawnTile({
+      tile: [25, 20],
+      spriteSize: GAME_STATE.player.size,
+      origin: GAME_STATE.background.position,
+    });
 
     this.controller = new Controller(GAME_STATE.keys);
   }

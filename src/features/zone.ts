@@ -1,5 +1,6 @@
 import { TILE_SIZE } from "@/constants/game-settings";
 import type { Position } from "@/features/sprite";
+import { toScreen } from "@/lib/canvas/screen";
 
 interface ZoneProps {
   position: Position;
@@ -24,7 +25,7 @@ export class Zone {
   }
 
   draw(ctx: CanvasRenderingContext2D) {
-    const { x, y } = this.position;
+    const { x, y } = toScreen(this.position);
     ctx.fillStyle = "rgba(255, 0, 0, 0.5)";
     ctx.fillRect(x, y, this.width, this.height);
   }

@@ -24,6 +24,7 @@ already exist under [`src/assets/img`](../src/assets/img).
 **Collision & Layering**
 
 - [Walls You Can't Walk Through](#walls-you-cant-walk-through)
+- [Stop Faking the Camera](#stop-faking-the-camera)
 - [Layer a Foreground Over the Player](#layer-a-foreground-over-the-player)
 
 **Optional: RPG Systems** — skip this whole group for a non-RPG game
@@ -1058,13 +1059,236 @@ export class GameEngine {
 > Walk into a wall from all 4 sides — stop right at the edge, every time;
 > still free to walk away in any other direction.
 
+## Stop Faking the Camera
+
+The player has been visually frozen at the canvas center this whole time —
+every collision check above works only because the map and its boundaries
+are the only things that ever move. Add a second thing with its own path
+(an NPC, a projectile) and that stops working: two independent motions would
+have to be composed against the same "shift the world" hack. Give the player
+a real, moving position instead, and let a `camera` decide what part of that
+world is currently visible — the player becomes just one more object living
+at a world position, same as everything else that will ever be added later.
+
+### Step 16: Give the camera its own position
+
+**File:** `src/features/game-state.ts`
+
+<!-- prettier-ignore -->
+```ts
+export const GAME_STATE = {
+  // -- snip --
+  camera: { x: 0, y: 0 }, // new
+};
+```
+
+> [!TIP]
+> `{ x: 0, y: 0 }` is a placeholder — the next couple of steps make it track
+> the player every tick, and `draw()` always runs after that sync happens,
+> so this starting value never actually reaches the screen.
+
+### Step 17: Convert a world position to a screen position
+
+The one formula everything below runs on:
+
+```
+screenX = worldX - camera.x + centerX   // same for y
+```
+
+`worldX - camera.x` is the object's position _relative to wherever the
+camera's centered_ — zero means "exactly where the camera's looking."
+Adding `centerX` re-anchors that from "0 = screen center" to "0 = the
+canvas's actual top-left pixel," which is what `drawImage` expects.
+
+`centerX`/`centerY` are just half the canvas — Step 1 already named
+`CANVAS_WIDTH`/`CANVAS_HEIGHT` for exactly this kind of repeated math
+("centering math" was one of the reasons that file exists), so the derived
+center belongs there too, not recomputed in whichever file happens to need
+it first.
+
+**File:** `src/constants/game-settings.ts`
+
+<!-- prettier-ignore -->
+```ts
+export const CANVAS_CENTER = { x: CANVAS_WIDTH / 2, y: CANVAS_HEIGHT / 2 }; // new
+```
+
+### Step 18: Let a `Sprite` draw itself relative to the camera
+
+**File:** `src/lib/canvas/screen.ts` — `Zone` will need this exact same
+conversion later; shared, not duplicated:
+
+<!-- prettier-ignore -->
+```ts
+import { CANVAS_CENTER } from "@/constants/game-settings";
+import type { Position } from "@/features/sprite";
+
+export function toScreen(worldPos: Position): Position {
+  const { camera } = GAME_STATE;
+  return {
+    x: worldPos.x - camera.x + CANVAS_CENTER.x,
+    y: worldPos.y - camera.y + CANVAS_CENTER.y,
+  };
+}
+```
+
+**File:** `src/features/sprite.ts`
+
+<!-- prettier-ignore -->
+```ts
+import { toScreen } from "@/lib/canvas/screen"; // new
+
+export class Sprite {
+  // -- snip --
+
+  draw(ctx: CanvasRenderingContext2D) {
+    if (!this.image) return;
+
+    const { x, y } = toScreen(this.position); // was: const { x, y } = this.position;
+
+    // -- snip -- (frame-cropping math and ctx.drawImage unchanged)
+  }
+
+  // -- snip --
+}
+```
+
+> [!TIP]
+> `draw()`'s own signature doesn't change at all — every call site written
+> since Step 6 (`GAME_STATE.map.draw(ctx)`, `GAME_STATE.player.draw(ctx)`,
+> and so on) keeps working completely untouched. Only what happens _inside_
+> `draw()` changes.
+
+> [!WARNING]
+> Every `Sprite` now draws camera-relative, always — there's no opt-out.
+> A scene that never touches `GAME_STATE.camera` (a future battle scene,
+> say) draws everything shifted by whatever the camera was last set to,
+> which is wherever the player happened to be standing before the scene
+> changed. Any non-scrolling scene needs to explicitly pin
+> `GAME_STATE.camera` to `CANVAS_CENTER` — the subtracted `camera` and the
+> added `centerX`/`centerY` become the same number and cancel out, so
+> everything draws at its own raw position, same as if this step never
+> existed.
+
+> [!TIP]
+> `GAME_STATE.camera` isn't locked to the player — it's just a world
+> position. A cutscene, or any non-scrolling scene, can reassign it to
+> whatever it needs (a landmark, a scripted pan target, or `CANVAS_CENTER`
+> to freeze scrolling entirely) and every `draw()` call already in the game
+> re-centers on it automatically — no change to `Sprite`, or to any call
+> site, is ever needed.
+
+### Step 19: Move the player, not the world
+
+**File:** `src/features/game-state.ts` — with a real camera, there's no
+reason left for the map's own pixel grid to sit anywhere but world `(0, 0)`
+directly. The old offset doesn't disappear, though — it moves to wherever
+it actually belongs: not "how do we draw the map," but "where does the
+player start":
+
+<!-- prettier-ignore -->
+```ts
+export const mapOrigin = { x: 0, y: 0 }; // was: { x: -780, y: -720 } — the map's own pixels are the world's now, nothing left to offset
+```
+
+**File:** `src/features/game-engine.ts` — the player's spawn was never a
+world position either; it's been screen-centering math since Step 6
+(`CANVAS_WIDTH / 2 - width / 2`), which answers "how do I draw this sprite
+centered," a screen-space question with nothing to do with where the player
+actually starts _in the map_. Reuse the exact numbers Step 2 already
+identified as "past the ocean," now that they have somewhere honest to
+live:
+
+<!-- prettier-ignore -->
+```ts
+export class GameEngine {
+  // -- snip --
+
+  constructor(canvas: HTMLCanvasElement) {
+    // -- snip -- (canvas sizing, ctx unchanged)
+
+    GAME_STATE.player.position = { x: 780, y: 720 }; // was: { x: CANVAS_WIDTH / 2 - GAME_STATE.player.image.width / 2, y: CANVAS_HEIGHT / 2 - GAME_STATE.player.image.height / 2 } — canvas math has no business deciding where in the map the player starts
+  }
+
+  // -- snip --
+}
+```
+
+> [!TIP]
+> The camera centers the player on screen now, wherever they actually
+> spawn — that's its whole job. The spawn point itself only has to answer
+> one question: where in the _map_ should the game begin? The canvas's
+> size should never factor into that answer again.
+
+`move()` is gone entirely: there's nothing left that needs shifting in
+lockstep, since the map and boundaries never move again after they spawn.
+
+<!-- prettier-ignore -->
+```ts
+export class GameEngine {
+  // -- snip --
+
+  private tick = () => {
+    this.gameLoopId = requestAnimationFrame(this.tick);
+
+    const direction = GAME_STATE.keys.pressed.at(-1);
+
+    if (direction) GAME_STATE.player.face(direction);
+    else GAME_STATE.player.frames.val = 0;
+
+    if (direction === "w") this.attemptMove(0, -3); // was: this.attemptMove(0, 3)
+    else if (direction === "a") this.attemptMove(-3, 0); // was: this.attemptMove(3, 0)
+    else if (direction === "s") this.attemptMove(0, 3); // was: this.attemptMove(0, -3)
+    else if (direction === "d") this.attemptMove(3, 0); // was: this.attemptMove(-3, 0)
+
+    // new:
+    GAME_STATE.camera.x = GAME_STATE.player.position.x + GAME_STATE.player.width / 2;
+    GAME_STATE.camera.y = GAME_STATE.player.position.y + GAME_STATE.player.height / 2;
+
+    this.draw();
+  };
+
+  private attemptMove(dx: number, dy: number) { // replaced
+    const box = {
+      position: { x: GAME_STATE.player.position.x + dx, y: GAME_STATE.player.position.y + dy }, // was: x - dx, y - dy — the inverted box was only needed because the player itself never moved
+      width: GAME_STATE.player.width,
+      height: GAME_STATE.player.height,
+    };
+    const blocked = GAME_STATE.boundaries.some((b) => isColliding(box, b));
+    if (!blocked) GAME_STATE.player.position = box.position; // new — was: this.move(dx, dy)
+  }
+
+  // -- snip --
+}
+```
+
+> [!WARNING]
+> Every `dx`/`dy` above is mirrored from before this step — they used to
+> describe how far the _map_ shifts (the opposite of the player's own
+> direction), and now describe the player's own motion directly. What was
+> `3` is now `-3`, and vice versa, for all 4 directions. Get one backwards
+> and that direction walks the player the wrong way.
+
+> [!WARNING]
+> `player.position` is the sprite's top-left corner, not its visual center
+> — that's what `drawImage` anchors from. Sync the camera to
+> `player.position` directly and `toScreen()` still does exactly what it's
+> told: it puts that top-left corner at the canvas's center, which shifts
+> the player's actual visual center down-and-right by half its own sprite
+> size. `+ width / 2` / `+ height / 2` is what makes the camera track the
+> point that's actually supposed to be centered.
+
+> [!NOTE]
+> Same movement, same collisions, same look on screen as before this step —
+> only how it's computed changed. Nothing should look different yet.
+
 ## Layer a Foreground Over the Player
 
 The map has objects taller than a tile — rooftops, tree canopies. Drawn
 only as background, the player walks _in front of_ them even when standing
 behind. A second image, drawn _after_ the player, fixes it.
 
-### Step 16: Add a foreground layer
+### Step 20: Add a foreground layer
 
 **File:** `src/features/game-state.ts` — load the foreground image, add it
 to `GAME_STATE` at the same origin as the map:
@@ -1080,7 +1304,8 @@ export const GAME_STATE = {
 };
 ```
 
-**File:** `src/features/game-engine.ts` — draw it _after_ the player:
+**File:** `src/features/game-engine.ts` — draw it _after_ the player,
+converted through the camera like everything else:
 
 <!-- prettier-ignore -->
 ```ts
@@ -1097,34 +1322,12 @@ export class GameEngine {
 }
 ```
 
-It also has to scroll with the map, same as boundaries — fold it into `move()`:
-
-<!-- prettier-ignore -->
-```ts
-export class GameEngine {
-  // -- snip --
-
-  private move(dx: number, dy: number) {
-    GAME_STATE.map.position.x += dx;
-    GAME_STATE.map.position.y += dy;
-
-    // new:
-    GAME_STATE.foreground.position.x += dx;
-    GAME_STATE.foreground.position.y += dy;
-
-    GAME_STATE.boundaries.forEach((b) => {
-      b.position.x += dx;
-      b.position.y += dy;
-    });
-  }
-
-  // -- snip --
-}
-```
-
-> [!WARNING]
-> Skip the `move()` update and the foreground stays frozen at spawn while
-> the map scrolls — the exact same detachment bug boundaries had.
+> [!NOTE]
+> No `move()` update this time, because there is no `move()` — the
+> foreground's world position is set once, above, and never touched again.
+> One line in `draw()` is the entire integration; compare that to the two
+> touch points (`draw()` _and_ `move()`) the old approach needed for every
+> single scrolling layer.
 
 > [!NOTE]
 > Stand behind a rooftop or tree canopy — it should now draw in front of
@@ -1132,7 +1335,7 @@ export class GameEngine {
 
 ## Make It Feel Right
 
-### Step 17: Movement shouldn't depend on frame rate
+### Step 21: Movement shouldn't depend on frame rate
 
 `requestAnimationFrame` fires at whatever rate the display refreshes —
 60Hz, 120Hz, 144Hz. A flat `3` px/tick moves faster on faster monitors.
@@ -1173,7 +1376,8 @@ export class Player extends Sprite {
 
 `tick()` is now scheduling, timing, input, animation, _and_ movement in one
 function. Split it: `tick()` keeps only scheduling and timing, everything
-per-frame moves into a new `update(dt)`.
+per-frame — including the camera sync from two steps ago — moves into a
+new `update(dt)`.
 
 **File:** `src/features/game-engine.ts`
 
@@ -1201,10 +1405,14 @@ export class GameEngine {
 
     const distance = GAME_STATE.player.moveSpeed * dt; // this frame's actual distance
 
-    if (direction === "w") this.attemptMove(0, distance); // was: literal 3, same for the other 3
-    else if (direction === "a") this.attemptMove(distance, 0);
-    else if (direction === "s") this.attemptMove(0, -distance);
-    else if (direction === "d") this.attemptMove(-distance, 0);
+    if (direction === "w") this.attemptMove(0, -distance); // was: literal -3, same for the other 3
+    else if (direction === "a") this.attemptMove(-distance, 0);
+    else if (direction === "s") this.attemptMove(0, distance);
+    else if (direction === "d") this.attemptMove(distance, 0);
+
+    // moved here from tick(), unchanged:
+    GAME_STATE.camera.x = GAME_STATE.player.position.x + GAME_STATE.player.width / 2;
+    GAME_STATE.camera.y = GAME_STATE.player.position.y + GAME_STATE.player.height / 2;
   }
   // -- snip --
 }
@@ -1214,7 +1422,7 @@ export class GameEngine {
 > `distance` isn't the speed — it's this frame's share of it. Summed
 > across a real second it adds up to `moveSpeed`, regardless of frame rate.
 
-### Step 18: Don't start the loop before assets exist
+### Step 22: Don't start the loop before assets exist
 
 Starting immediately after `.src` means the first frames can run against
 `0×0` images — broken hitboxes, invisible sprites.
@@ -1320,7 +1528,7 @@ because this one's RPG-shaped, and `Zone` was already built reusable for
 exactly this: a second Tiled layer, checked with a deeper overlap than
 `isColliding`'s any-touch test.
 
-### Step 19: Compute how much two rects overlap
+### Step 23: Compute how much two rects overlap
 
 **File:** `src/features/collisions.ts`
 
@@ -1374,7 +1582,7 @@ Visually, `left`/`top`/`right`/`bottom` are just whichever edge of `a` or
 > wall. This answers _how much_, so entering a zone can require a deeper
 > overlap than just brushing its edge.
 
-### Step 20: Turn a second layer into zones, and trigger on deep overlap
+### Step 24: Turn a second layer into zones, and trigger on deep overlap
 
 **File:** `src/features/collisions.ts` — reuses `COLLISION_TILE`, since
 it's the same marker tile painted on a different Tiled layer:
@@ -1405,32 +1613,8 @@ export const GAME_STATE = {
 };
 ```
 
-**File:** `src/features/game-engine.ts` — scroll it with everything else,
-same as boundaries:
-
-<!-- prettier-ignore -->
-```ts
-export class GameEngine {
-  // -- snip --
-
-  private move(dx: number, dy: number) {
-    GAME_STATE.map.position.x += dx;
-    GAME_STATE.map.position.y += dy;
-    GAME_STATE.foreground.position.x += dx;
-    GAME_STATE.foreground.position.y += dy;
-    [GAME_STATE.boundaries, GAME_STATE.battleZones] // was: GAME_STATE.boundaries.forEach(...)
-      .flat()
-      .forEach((b) => {
-        b.position.x += dx;
-        b.position.y += dy;
-      });
-  }
-
-  // -- snip --
-}
-```
-
-Then check it in `attemptMove`, before the wall check:
+**File:** `src/features/game-engine.ts` — no `move()` update needed; add the
+check straight into `attemptMove`, before the wall check:
 
 <!-- prettier-ignore -->
 ```ts
@@ -1439,17 +1623,18 @@ export class GameEngine {
 
   private attemptMove(dx: number, dy: number) {
     const box = {
-      position: { x: GAME_STATE.player.position.x - dx, y: GAME_STATE.player.position.y - dy },
+      position: { x: GAME_STATE.player.position.x + dx, y: GAME_STATE.player.position.y + dy },
       width: GAME_STATE.player.width,
       height: GAME_STATE.player.height,
     };
 
+    // new:
     const playerArea = box.width * box.height;
     const enteredZone = GAME_STATE.battleZones.some((z) => getOverlapArea(box, z) > playerArea / 2);
     if (enteredZone && Math.random() < 0.01) console.log("Battle Activation");
 
     const blocked = GAME_STATE.boundaries.some((b) => isColliding(box, b));
-    if (!blocked) this.move(dx, dy);
+    if (!blocked) GAME_STATE.player.position = box.position;
   }
 
   // -- snip --
@@ -1475,7 +1660,7 @@ flips to `"battle"` and nothing happens. Giving each scene its own
 `GameEngine`, means adding a real battle screen later is one new file, not
 a growing pile of `if` checks.
 
-### Step 21: Define what a scene is
+### Step 25: Define what a scene is
 
 **File:** `src/features/scene.ts`
 
@@ -1494,7 +1679,7 @@ export interface Scene {
 > can switch to another one by name (`GAME_STATE.sceneName = "battle"`)
 > without importing that other scene's file.
 
-### Step 22: Track which scene is active
+### Step 26: Track which scene is active
 
 **File:** `src/features/game-state.ts` — add to `GAME_STATE`:
 
@@ -1508,11 +1693,11 @@ export const GAME_STATE = {
 };
 ```
 
-### Step 23: Move the overworld's behavior into its own scene
+### Step 27: Move the overworld's behavior into its own scene
 
 **File:** `src/features/scenes/overworld.ts` — everything `update()`,
-`draw()`, `move()`, and `attemptMove()` did inside `GameEngine`, unchanged
-except there's no more `this`:
+`draw()`, and `attemptMove()` did inside `GameEngine`, unchanged except
+there's no more `this`:
 
 <!-- prettier-ignore -->
 ```ts
@@ -1528,10 +1713,13 @@ export const overworldScene: Scene = {
 
     const distance = GAME_STATE.player.moveSpeed * dt;
 
-    if (direction === "w") attemptMove(0, distance);
-    else if (direction === "a") attemptMove(distance, 0);
-    else if (direction === "s") attemptMove(0, -distance);
-    else if (direction === "d") attemptMove(-distance, 0);
+    if (direction === "w") attemptMove(0, -distance);
+    else if (direction === "a") attemptMove(-distance, 0);
+    else if (direction === "s") attemptMove(0, distance);
+    else if (direction === "d") attemptMove(distance, 0);
+
+    GAME_STATE.camera.x = GAME_STATE.player.position.x + GAME_STATE.player.width / 2;
+    GAME_STATE.camera.y = GAME_STATE.player.position.y + GAME_STATE.player.height / 2;
   },
 
   draw(ctx) {
@@ -1541,22 +1729,9 @@ export const overworldScene: Scene = {
   },
 };
 
-function move(dx: number, dy: number) {
-  GAME_STATE.map.position.x += dx;
-  GAME_STATE.map.position.y += dy;
-  GAME_STATE.foreground.position.x += dx;
-  GAME_STATE.foreground.position.y += dy;
-  [GAME_STATE.boundaries, GAME_STATE.battleZones]
-    .flat()
-    .forEach((b) => {
-      b.position.x += dx;
-      b.position.y += dy;
-    });
-}
-
 function attemptMove(dx: number, dy: number) {
   const box = {
-    position: { x: GAME_STATE.player.position.x - dx, y: GAME_STATE.player.position.y - dy },
+    position: { x: GAME_STATE.player.position.x + dx, y: GAME_STATE.player.position.y + dy },
     width: GAME_STATE.player.width,
     height: GAME_STATE.player.height,
   };
@@ -1566,11 +1741,11 @@ function attemptMove(dx: number, dy: number) {
   if (enteredZone && Math.random() < 0.01) GAME_STATE.sceneName = "battle"; // was: console.log("Battle Activation")
 
   const blocked = GAME_STATE.boundaries.some((b) => isColliding(box, b));
-  if (!blocked) move(dx, dy);
+  if (!blocked) GAME_STATE.player.position = box.position;
 }
 ```
 
-### Step 24: Add a battle scene
+### Step 28: Add a battle scene
 
 **File:** `src/features/scenes/battle.ts` — stub for now:
 
@@ -1589,11 +1764,11 @@ export const battleScene: Scene = {
 > showing whatever `overworldScene` last drew, frozen — the base a fade
 > transition needs.
 
-### Step 25: Let `GameEngine` dispatch to the active scene
+### Step 29: Let `GameEngine` dispatch to the active scene
 
-**File:** `src/features/game-engine.ts` — delete `update()`, `draw()`,
-`move()`, and `attemptMove()` entirely — they moved to `overworld.ts`. Add
-a scene registry, and simplify `tick()` to read from it:
+**File:** `src/features/game-engine.ts` — delete `update()`, `draw()`, and
+`attemptMove()` entirely — they moved to `overworld.ts`. Add a scene
+registry, and simplify `tick()` to read from it:
 
 <!-- prettier-ignore -->
 ```ts
@@ -1623,7 +1798,7 @@ export class GameEngine {
 ```
 
 > [!WARNING]
-> `update()`, `draw()`, `move()`, and `attemptMove()` no longer belong on
+> `update()`, `draw()`, and `attemptMove()` no longer belong on
 > `GameEngine` — delete them, don't leave unused copies sitting next to
 > the new `tick()`.
 
@@ -1638,7 +1813,7 @@ An instant cut between scenes is jarring. A brief fade to black hides the
 swap. Each scene owns its own fade timing — a gentle overworld doesn't
 force every future scene into the same pacing.
 
-### Step 26: A fade that's just a black overlay with a timer
+### Step 30: A fade that's just a black overlay with a timer
 
 **File:** `src/lib/canvas/fade-transition.ts`
 
@@ -1696,7 +1871,7 @@ export const FADE = new FadeTransition();
 > it's becoming transparent (revealing whatever's now underneath). Every
 > transition runs the same fixed order: `show` → `hide` → `idle`.
 
-### Step 27: Let a scene declare when it ends and how it fades
+### Step 31: Let a scene declare when it ends and how it fades
 
 **File:** `src/features/scene.ts`
 
@@ -1728,11 +1903,11 @@ export type Scene = SceneBase & SceneTransition; // was: export interface Scene 
 > `duration`/`next` are NOT two independent optionals — a scene with a
 > `duration` but no `next` would auto-expire into nothing. The union forces
 > both or neither, so a check like `scene.duration !== undefined` also
-> narrows `scene.next` to a guaranteed `SceneName` right where Step 30 needs
+> narrows `scene.next` to a guaranteed `SceneName` right where Step 34 needs
 > it — no separate null-check, no runtime crash if someone sets one without
 > the other.
 
-### Step 28: Give each scene its own fade timing
+### Step 32: Give each scene its own fade timing
 
 **File:** `src/features/scenes/overworld.ts` — gentle both ways; the
 trigger itself doesn't change, it never touches `FADE` at all:
@@ -1769,7 +1944,7 @@ export const battleScene: Scene = {
 > `5` is a placeholder so there's something to test — a real battle ends
 > on a win or loss, not a clock. Swap this out once that logic exists.
 
-### Step 29: Give the battle scene something to reveal
+### Step 33: Give the battle scene something to reveal
 
 **File:** `src/features/game-state.ts`
 
@@ -1795,13 +1970,17 @@ export const assetsReady = preload([
 
 <!-- prettier-ignore -->
 ```ts
+import { CANVAS_CENTER } from "@/constants/game-settings";
 import { GAME_STATE } from "@/features/game-state";
 
 export const battleScene: Scene = {
   duration: 5,
   next: "overworld",
 
-  update() {},
+  update() { // was: update() {}
+    GAME_STATE.camera.x = CANVAS_CENTER.x; // new
+    GAME_STATE.camera.y = CANVAS_CENTER.y; // new
+  },
 
   draw(ctx) { // new
     GAME_STATE.battleBackground.draw(ctx);
@@ -1809,7 +1988,7 @@ export const battleScene: Scene = {
 };
 ```
 
-### Step 30: Tie it together in the game loop
+### Step 34: Tie it together in the game loop
 
 **File:** `src/features/game-state.ts` — one more field, alongside `scene`:
 
@@ -1827,7 +2006,7 @@ values and switches to the new scene:
 
 <!-- prettier-ignore -->
 ```ts
-// -- snip -- (SCENES, from Step 25, stays above)
+// -- snip -- (SCENES, from Step 29, stays above)
 function enterScene(from: SceneName, to: SceneName) { // new
   const showDuration = SCENES[from].fadeOut ?? 0;
   const hideDuration = SCENES[to].fadeIn ?? 0;
@@ -1913,8 +2092,11 @@ one big move: one file for what exists, one for what happens, growing by
 one field or method at a time. A canvas game loop decoupled from frame
 rate; a reusable `Sprite` with spritesheet animation; a `Player` subclass
 with 4-directional facing; input that survives multiple keys held at once
-and resets cleanly on alt-tab; real Tiled-driven wall collision; a
-foreground layer so tall objects correctly draw in front of the player;
+and resets cleanly on alt-tab; real Tiled-driven wall collision; a real
+camera translating world positions into screen positions, so the player (and
+anything else added later) has an actual position in the map instead of a
+visual illusion; a foreground layer so tall objects correctly draw in front
+of the player;
 zone-entry detection reusing the same `Zone` shape for a second, non-wall
 Tiled layer; behavior split into scenes, each owning its own
 `update`/`draw`, so `GameEngine` stays a dispatcher instead of a growing

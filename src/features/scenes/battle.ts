@@ -1,3 +1,4 @@
+import { CANVAS_CENTER } from "@/constants/game-settings";
 import { GAME_STATE } from "@/features/game-state";
 import type { Scene } from "@/features/scene";
 import { playMusic } from "@/lib/audio";
@@ -41,6 +42,9 @@ export const battleScene: Scene = {
   // next: "overworld",
 
   update(_dt) {
+    // reset camera
+    GAME_STATE.camera = { ...CANVAS_CENTER };
+
     if (GAME_STATE.sceneElapsed === 0) {
       cues.start();
       battleCompleteHandled = false;

@@ -1,3 +1,4 @@
+import { toScreen } from "@/lib/canvas/screen";
 import { loadImage } from "@/lib/load-image";
 
 export type Position = { x: number; y: number };
@@ -56,7 +57,7 @@ export class Sprite {
   draw(ctx: CanvasRenderingContext2D) {
     if (!this.image) return;
 
-    const { x, y } = this.position;
+    const { x, y } = toScreen(this.position);
 
     // Basic
     // ctx.drawImage(this.image, x, y);
