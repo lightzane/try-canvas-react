@@ -1422,6 +1422,75 @@ export class GameEngine {
 > `distance` isn't the speed — it's this frame's share of it. Summed
 > across a real second it adds up to `moveSpeed`, regardless of frame rate.
 
+Animation has the same problem — `step()` advances every _frame_, not
+every _millisecond_.
+
+**File:** `src/features/sprite.ts`
+
+<!-- prettier-ignore -->
+```ts
+interface SpriteFrames {
+  max?: number;
+  val?: number;
+  elapsed?: number; // was: ticks — now milliseconds
+  hold?: number; // was: render-ticks — now milliseconds
+}
+
+export class Sprite {
+  // -- snip --
+
+  constructor({ src, position = { x: 0, y: 0 }, frames = { max: 1 } }: SpriteProps) {
+    this.image = loadImage(src);
+    this.position = position;
+    this.frames = { max: 1, hold: 167, val: 0, elapsed: 0, ...frames }; // was: hold: 10 — same ~167ms cadence, now in ms
+  }
+
+  // -- snip --
+
+  step(dt: number) { // was: step() {
+    if (this.frames.max <= 1) return;
+
+    this.frames.elapsed += dt * 1000; // was: this.frames.elapsed++; — dt is seconds, elapsed/hold are ms
+
+    if (this.frames.elapsed >= this.frames.hold) { // was: this.frames.elapsed % this.frames.hold === 0
+      this.frames.elapsed -= this.frames.hold; // new — carries the remainder, avoids drift
+      this.frames.val = (this.frames.val + 1) % this.frames.max;
+    }
+  }
+}
+```
+
+**File:** `src/features/sprite-player.ts`
+
+<!-- prettier-ignore -->
+```ts
+export class Player extends Sprite {
+  // -- snip --
+
+  face(direction: Direction, dt: number) { // was: face(direction: Direction) {
+    this.image = this.sprites[direction];
+    this.step(dt); // was: this.step();
+  }
+}
+```
+
+**File:** `src/features/game-engine.ts`
+
+<!-- prettier-ignore -->
+```ts
+export class GameEngine {
+  // -- snip --
+
+  private update(dt: number) {
+    const direction = GAME_STATE.keys.pressed.at(-1);
+    if (direction) GAME_STATE.player.face(direction, dt); // was: GAME_STATE.player.face(direction)
+    else GAME_STATE.player.frames.val = 0;
+    // -- snip --
+  }
+  // -- snip --
+}
+```
+
 ### Step 22: Don't start the loop before assets exist
 
 Starting immediately after `.src` means the first frames can run against

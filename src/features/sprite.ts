@@ -15,14 +15,14 @@ interface SpriteFrames {
   max?: number;
   /** current frame index @default 0 */
   val?: number;
-  /** ticks since last advance @default 0 */
+  /** milliseconds since last advance @default 0 */
   elapsed?: number;
   /**
-   * render-ticks to wait before advancing
+   * milliseconds to wait before advancing
    * is what keeps the walk cycle human-paced — without it
-   * you'd advance a frame every render tick (60/sec),
-   * which looks like a blur, not a walk.
-   * @default 10
+   * you'd advance a frame every tick, which looks like a
+   * blur, not a walk.
+   * @default 167
    */
   hold?: number;
 }
@@ -36,7 +36,7 @@ export class Sprite {
   constructor({ src, position = { x: 0, y: 0 }, frames = { max: 1 } }: SpriteProps) {
     this.image = loadImage(src);
     this.position = position;
-    this.frames = { max: 1, hold: 10, val: 0, elapsed: 0, ...frames };
+    this.frames = { max: 1, hold: 167, val: 0, elapsed: 0, ...frames };
   }
 
   get width() {
@@ -87,12 +87,13 @@ export class Sprite {
     // }
   }
 
-  step() {
+  step(dt: number) {
     if (this.frames.max <= 1) return;
 
-    this.frames.elapsed++;
+    this.frames.elapsed += dt * 1000; // — dt is seconds, elapsed/hold are ms
 
-    if (this.frames.elapsed % this.frames.hold === 0) {
+    if (this.frames.elapsed >= this.frames.hold) {
+      this.frames.elapsed -= this.frames.hold; // carries the remainder, avoids drift
       this.frames.val = ++this.frames.val % this.frames.max;
     }
   }

@@ -22,9 +22,9 @@ export class Player extends Sprite {
     this.moveSpeed = moveSpeed;
   }
 
-  face(direction: Direction) {
+  face(direction: Direction, dt: number) {
     this.image = this.sprites[direction];
-    this.step();
+    this.step(dt);
   }
 
   /** All 4 loaded direction sprites — used by preload(), not for drawing. */

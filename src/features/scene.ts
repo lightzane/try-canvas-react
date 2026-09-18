@@ -6,7 +6,7 @@ export type SceneEvent =
 
 interface SceneBase {
   update(dt: number): void;
-  draw(ctx: CanvasRenderingContext2D): void;
+  draw(ctx: CanvasRenderingContext2D, dt: number): void;
   /** This scene's own reveal duration, in seconds; unset = instant. */
   fadeIn?: number;
   /** This scene's own exit duration, in seconds; unset = instant. */

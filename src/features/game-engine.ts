@@ -109,7 +109,7 @@ export class GameEngine {
     // swap is actually hidden. The canvas just keeps the last painted
     // (frozen) frame in the meantime, since nothing draws over it.
     if (FADE.phase !== "show") {
-      scene.draw(this.ctx);
+      scene.draw(this.ctx, dt);
       DIALOGUE.draw(this.ctx);
     }
 

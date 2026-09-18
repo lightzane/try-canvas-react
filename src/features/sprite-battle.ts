@@ -114,7 +114,7 @@ export class BattleSprite extends Sprite {
     for (let i = 0; i < 3; i++) {
       const flame = new Sprite({
         src: GAME_STATE.assets.imgFxEmber,
-        frames: { max: 4, val: i, hold: 5 },
+        frames: { max: 4, val: i, hold: 83.5 }, // 83.5 ms
         position: { ...this.position, x: this.position.x + 30 },
       });
 

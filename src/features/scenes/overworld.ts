@@ -12,7 +12,7 @@ export const overworldScene: Scene = {
     if (GAME_STATE.sceneElapsed === 0) playMusic("map");
 
     const direction = GAME_STATE.keys.pressed.at(-1);
-    if (direction) GAME_STATE.player.face(direction);
+    if (direction) GAME_STATE.player.face(direction, dt);
     else GAME_STATE.player.frames.val = 0; // standing position
 
     // [Frame rate] if NO delta time, this will be 200px/tick

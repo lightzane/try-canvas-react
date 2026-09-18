@@ -41,7 +41,7 @@ export const battleScene: Scene = {
   // duration: 5, // demo only — leaves battle automatically
   // next: "overworld",
 
-  update(_dt) {
+  update(dt) {
     // reset camera
     GAME_STATE.camera = { ...CANVAS_CENTER };
 
@@ -60,17 +60,17 @@ export const battleScene: Scene = {
       };
     }
 
-    GAME_STATE.sprites.draggle.step();
-    GAME_STATE.sprites.emby.step();
+    GAME_STATE.sprites.draggle.step(dt);
+    GAME_STATE.sprites.emby.step(dt);
   },
 
-  draw(ctx) {
+  draw(ctx, dt) {
     GAME_STATE.battleBackground.draw(ctx);
     GAME_STATE.sprites.draggle.draw(ctx);
 
     GAME_STATE.fx.forEach((fx) => {
       fx.draw(ctx);
-      fx.step();
+      fx.step(dt);
     });
 
     GAME_STATE.sprites.emby.draw(ctx);
